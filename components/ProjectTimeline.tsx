@@ -9,7 +9,7 @@ type Stage = {
 
 const STAGES = [
   { key: 'INITIATED', label: '프로젝트\n발의' },
-  { key: 'PM_REVIEW', label: 'PM\n일정검토' },
+  { key: 'PM_REVIEW', label: '상품기획\n검토' },
   { key: 'DESIGN', label: '디자인\n진행' },
   { key: 'SAMPLING', label: '샘플/양산\n진행' },
   { key: 'CLOSED', label: '입고\n완료' },

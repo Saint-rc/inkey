@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 
 const STATUS_LABEL: Record<string, string> = {
   INITIATED: '발의됨',
-  PM_REVIEW: 'PM 검토중',
+  PM_REVIEW: '상품기획 검토중',
   DESIGN: '디자인 진행',
   SAMPLING: '샘플/양산',
   CLOSED: '완료',

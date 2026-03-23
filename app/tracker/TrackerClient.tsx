@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 const STATUS_LABEL: Record<string, string> = {
   INITIATED: '발의됨',
-  PM_REVIEW: 'PM 검토중',
+  PM_REVIEW: '상품기획 검토중',
   DESIGN: '디자인 진행',
   SAMPLING: '샘플/양산',
   CLOSED: '완료',
@@ -29,7 +29,7 @@ const PIPELINE = [
     filterActive: 'bg-yellow-400 text-white',
   },
   {
-    key: 'PM_REVIEW', label: 'PM검토',
+    key: 'PM_REVIEW', label: '상품기획',
     activeNode: 'bg-blue-500 text-white ring-[3px] ring-blue-100',
     doneNode:   'bg-blue-400 text-white',
     doneLine:   'bg-blue-400',
@@ -203,7 +203,7 @@ function isOverdue(dateStr: string | null | undefined) {
 const PIPELINE_FILTER = [
   { key: null,        label: '전체',     activeClass: 'bg-gray-700 text-white',    badgeClass: 'bg-white/20 text-white' },
   { key: 'INITIATED', label: '발의',     activeClass: 'bg-yellow-400 text-white',  badgeClass: 'bg-white/30 text-white' },
-  { key: 'PM_REVIEW', label: 'PM검토',   activeClass: 'bg-blue-500 text-white',    badgeClass: 'bg-white/20 text-white' },
+  { key: 'PM_REVIEW', label: '상품기획',  activeClass: 'bg-blue-500 text-white',    badgeClass: 'bg-white/20 text-white' },
   { key: 'DESIGN',    label: '디자인',   activeClass: 'bg-purple-500 text-white',  badgeClass: 'bg-white/20 text-white' },
   { key: 'SAMPLING',  label: '샘플/양산', activeClass: 'bg-orange-500 text-white', badgeClass: 'bg-white/20 text-white' },
 ]
