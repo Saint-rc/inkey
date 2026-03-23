@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 const ROLE_LABELS: Record<string, string> = {
-  PLANNER: '기획자',
-  PM: 'PM',
+  PLANNER: 'PM',
+  PM: '상품기획',
   DESIGN_LEADER: '디자인리더',
   DESIGNER: '디자이너',
 }
@@ -31,10 +31,13 @@ export default function Navbar({
   return (
     <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
       <Link href="/dashboard" className="text-lg font-bold text-blue-600">
-        올인원
+        프로젝트 매니저
       </Link>
 
       <div className="flex items-center gap-4">
+        <Link href="/tracker" className="text-sm text-gray-500 hover:text-blue-600 transition-colors">
+          일정 현황
+        </Link>
         {isAdmin && (
           <Link href="/admin" className="text-sm text-gray-500 hover:text-blue-600 transition-colors">
             관리자

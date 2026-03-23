@@ -18,7 +18,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="bg-white rounded-2xl shadow-lg p-10 w-full max-w-md text-center">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">올인원</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">프로젝트 매니저</h1>
           <p className="text-gray-500 text-sm">제품 개발 프로젝트 관리 시스템</p>
         </div>
 

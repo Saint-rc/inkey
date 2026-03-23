@@ -4,16 +4,44 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const DESIGN_STEPS = [
-  { key: 'DESIGN_1ST_WORK', label: '1차 기획디자인 작업' },
-  { key: 'DESIGN_1ST_REVIEW', label: '1차 디자인 검수' },
-  { key: 'DESIGN_2ND_WORK', label: '2차 디자인 작업' },
-  { key: 'DESIGN_2ND_REVIEW', label: '2차 디자인 검수' },
-  { key: 'WORK_ORDER_READY', label: '작지서 제작 완료' },
-  { key: 'WORK_ORDER_SENT', label: '작지서 PM팀 전달' },
+// 디자인 단계 정의
+type DesignPhase = '1차디자인' | '2차디자인' | '작지서'
+
+const getPhase = (step: string | null, rejected: boolean): DesignPhase => {
+  if (!step) return '1차디자인'
+  // 작지서는 반려 여부와 무관하게 최우선
+  if (['WORK_ORDER_READY', 'WORK_ORDER_SENT'].includes(step)) return '작지서'
+  if (['DESIGN_2ND_WORK', 'DESIGN_2ND_REVIEW'].includes(step) || rejected) return '2차디자인'
+  if (['DESIGN_1ST_WORK', 'DESIGN_1ST_REVIEW'].includes(step)) return '1차디자인'
+  return '1차디자인'
+}
+
+type SubStatus = '디자인중' | '검수중' | '검수반려' | '완료' | '작지서작성중' | '작지서완료'
+
+const getSubStatus = (step: string | null): SubStatus => {
+  switch (step) {
+    case 'DESIGN_1ST_WORK':
+    case 'DESIGN_2ND_WORK': return '디자인중'
+    case 'DESIGN_1ST_REVIEW':
+    case 'DESIGN_2ND_REVIEW': return '검수중'
+    case 'WORK_ORDER_READY': return '작지서작성중'
+    case 'WORK_ORDER_SENT': return '작지서완료'
+    default: return '디자인중'
+  }
+}
+
+// 단계별 버튼 정의
+const DESIGN_BUTTONS: { key: SubStatus; label: string; color: string }[] = [
+  { key: '디자인중', label: '디자인중', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { key: '검수중', label: '검수중', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
+  { key: '검수반려', label: '검수반려', color: 'bg-red-100 text-red-700 border-red-300' },
+  { key: '완료', label: '완료', color: 'bg-green-100 text-green-700 border-green-300' },
 ]
 
-const STEP_ORDER = DESIGN_STEPS.map((s) => s.key)
+const WORK_ORDER_BUTTONS: { key: SubStatus; label: string; color: string }[] = [
+  { key: '작지서작성중', label: '작지서 작성중', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { key: '작지서완료', label: '완료', color: 'bg-green-100 text-green-700 border-green-300' },
+]
 
 export default function DesignSection({
   project,
@@ -30,13 +58,14 @@ export default function DesignSection({
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [selectedDesigner, setSelectedDesigner] = useState(project.designer_id ?? '')
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploadType, setUploadType] = useState<'DESIGN_DRAFT' | 'WORK_ORDER'>('DESIGN_DRAFT')
+  const [expectedDate, setExpectedDate] = useState(project.design_expected_date ?? '')
 
   const isDesignLeader = profile?.role === 'DESIGN_LEADER'
-  const isDesigner = profile?.role === 'DESIGNER' && project.designer_id === profile?.id
+  const isDesigner = (profile?.role === 'DESIGNER' || profile?.role === 'DESIGN_LEADER') && project.designer_id === profile?.id
+  const canAct = isDesignLeader || isDesigner
 
-  const currentStepIdx = project.design_step ? STEP_ORDER.indexOf(project.design_step) : -1
+  const phase = getPhase(project.design_step, project.design_rejected)
+  const subStatus = getSubStatus(project.design_step)
 
   const handleAssignDesigner = async () => {
     if (!selectedDesigner) return
@@ -44,79 +73,86 @@ export default function DesignSection({
     await supabase.from('projects').update({
       designer_id: selectedDesigner,
       design_step: 'DESIGN_1ST_WORK',
+      design_rejected: false,
     }).eq('id', project.id)
     router.refresh()
     setLoading(false)
   }
 
-  const handleNextStep = async () => {
+  const handleStatusClick = async (status: SubStatus) => {
+    if (!canAct || loading) return
     setLoading(true)
-    const nextStep = STEP_ORDER[currentStepIdx + 1]
 
-    if (nextStep === undefined) {
-      // 디자인 완료 → 샘플링 단계로
-      await supabase.from('projects').update({
-        status: 'SAMPLING',
-        sample_step: 'SAMPLE_REQUESTED',
-      }).eq('id', project.id)
-    } else {
-      await supabase.from('projects').update({
-        design_step: nextStep,
-      }).eq('id', project.id)
+    if (phase === '1차디자인' || phase === '2차디자인') {
+      const isFirst = phase === '1차디자인'
+
+      if (status === '디자인중') {
+        await supabase.from('projects').update({
+          design_step: isFirst ? 'DESIGN_1ST_WORK' : 'DESIGN_2ND_WORK',
+        }).eq('id', project.id)
+      } else if (status === '검수중') {
+        await supabase.from('projects').update({
+          design_step: isFirst ? 'DESIGN_1ST_REVIEW' : 'DESIGN_2ND_REVIEW',
+          design_expected_date: expectedDate || null,
+        }).eq('id', project.id)
+      } else if (status === '검수반려') {
+        // 반려 → 2차 디자인으로
+        await supabase.from('projects').update({
+          design_step: 'DESIGN_2ND_WORK',
+          design_rejected: true,
+          design_expected_date: null,
+        }).eq('id', project.id)
+      } else if (status === '완료') {
+        // 완료 → 작지서로 (반려 플래그 초기화)
+        await supabase.from('projects').update({
+          design_step: 'WORK_ORDER_READY',
+          design_rejected: false,
+          design_expected_date: expectedDate || null,
+        }).eq('id', project.id)
+      }
+    } else if (phase === '작지서') {
+      if (status === '작지서작성중') {
+        await supabase.from('projects').update({
+          design_step: 'WORK_ORDER_READY',
+        }).eq('id', project.id)
+      } else if (status === '작지서완료') {
+        // 완료 → 샘플링(PM)으로 전달
+        await supabase.from('projects').update({
+          design_step: 'WORK_ORDER_SENT',
+          design_expected_date: expectedDate || null,
+          status: 'SAMPLING',
+          sample_step: 'SAMPLE_REQUESTED',
+        }).eq('id', project.id)
+      }
     }
+
     router.refresh()
     setLoading(false)
   }
 
-  const handleFileUpload = async () => {
-    if (!uploadFile) return
-    setLoading(true)
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const ext = uploadFile.name.split('.').pop()
-    const path = `${project.id}/${Date.now()}.${ext}`
-
-    const { data: uploaded } = await supabase.storage
-      .from('project-files')
-      .upload(path, uploadFile)
-
-    if (uploaded) {
-      const { data: { publicUrl } } = supabase.storage
-        .from('project-files')
-        .getPublicUrl(path)
-
-      await supabase.from('project_files').insert({
-        project_id: project.id,
-        file_type: uploadType,
-        file_url: publicUrl,
-        file_name: uploadFile.name,
-        uploader_id: user.id,
-      })
-    }
-
-    setUploadFile(null)
+  const saveDate = async () => {
+    if (!expectedDate) return
+    await supabase.from('projects').update({
+      design_expected_date: expectedDate,
+    }).eq('id', project.id)
     router.refresh()
-    setLoading(false)
   }
 
-  const designFiles = files.filter((f) => ['DESIGN_DRAFT', 'WORK_ORDER'].includes(f.file_type))
+  const buttons = phase === '작지서' ? WORK_ORDER_BUTTONS : DESIGN_BUTTONS
+  const activeStatus = phase === '작지서' ? subStatus : subStatus
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-bold text-gray-900">디자인 진행</h2>
         {project.designer && (
-          <span className="text-sm text-gray-500">
-            담당: {(project.designer as any)?.name}
-          </span>
+          <span className="text-sm text-gray-500">담당: {(project.designer as any)?.name}</span>
         )}
       </div>
 
       {/* 디자인리더: 디자이너 배정 */}
       {isDesignLeader && !project.designer_id && (
-        <div className="mb-4 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+        <div className="mb-5 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
           <p className="text-sm font-medium text-yellow-800 mb-3">디자이너를 배정해주세요</p>
           <div className="flex gap-3">
             <select
@@ -126,7 +162,9 @@ export default function DesignSection({
             >
               <option value="">디자이너 선택</option>
               {designers.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
+                <option key={d.id} value={d.id}>
+                  {d.name} {d.role === 'DESIGN_LEADER' ? '(리더)' : ''}
+                </option>
               ))}
             </select>
             <button
@@ -142,96 +180,177 @@ export default function DesignSection({
 
       {/* 진행 단계 표시 */}
       {project.design_step && (
-        <div className="mb-5">
-          <div className="flex gap-2 flex-wrap">
-            {DESIGN_STEPS.map((step, i) => (
-              <div
-                key={step.key}
-                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
-                  i < currentStepIdx
-                    ? 'bg-green-100 text-green-700'
-                    : i === currentStepIdx
-                    ? 'bg-blue-100 text-blue-700 font-semibold'
-                    : 'bg-gray-100 text-gray-400'
-                }`}
+        <div className="space-y-5">
+
+          {/* 단계 탭 */}
+          <div className="flex gap-2">
+            {(['1차디자인', '2차디자인', '작지서'] as DesignPhase[]).map((p) => {
+              const isDone =
+                (p === '1차디자인' && ['2차디자인', '작지서'].includes(phase)) ||
+                (p === '2차디자인' && phase === '작지서')
+              const isActive = p === phase
+              return (
+                <div
+                  key={p}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                    isDone
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : isActive
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-50 text-gray-400 border-gray-200'
+                  }`}
+                >
+                  {isDone && (
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  {p}
+                  {p === '2차디자인' && project.design_rejected && isActive && (
+                    <span className="ml-1 text-xs opacity-75">(반려)</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* 현재 단계 이름 + 1차 되돌리기 */}
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-gray-700">
+              {phase === '1차디자인' && '1차 디자인 작업'}
+              {phase === '2차디자인' && '2차 디자인 작업'}
+              {phase === '작지서' && '작지서 제작'}
+            </div>
+            {phase === '2차디자인' && canAct && (
+              <button
+                onClick={async () => {
+                  setLoading(true)
+                  await supabase.from('projects').update({
+                    design_step: 'DESIGN_1ST_WORK',
+                    design_rejected: false,
+                    design_expected_date: null,
+                  }).eq('id', project.id)
+                  router.refresh()
+                  setLoading(false)
+                }}
+                disabled={loading}
+                className="text-xs text-gray-400 hover:text-blue-600 underline underline-offset-2 transition-colors"
               >
-                {i < currentStepIdx && (
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-                {step.label}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 파일 업로드 (디자이너만) */}
-      {isDesigner && project.design_step && (
-        <div className="mb-4 p-4 bg-gray-50 rounded-xl">
-          <p className="text-sm font-medium text-gray-700 mb-3">파일 업로드</p>
-          <div className="flex gap-3 items-center">
-            <select
-              value={uploadType}
-              onChange={(e) => setUploadType(e.target.value as any)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="DESIGN_DRAFT">디자인 시안</option>
-              <option value="WORK_ORDER">작지서</option>
-            </select>
-            <label className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm cursor-pointer bg-white hover:bg-gray-50">
-              {uploadFile ? uploadFile.name : '파일 선택...'}
-              <input type="file" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} />
-            </label>
-            <button
-              onClick={handleFileUpload}
-              disabled={!uploadFile || loading}
-              className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-900 disabled:opacity-40 transition-colors"
-            >
-              업로드
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 업로드된 파일 목록 */}
-      {designFiles.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-gray-400 mb-2">첨부 파일</p>
-          <div className="space-y-1.5">
-            {designFiles.map((file) => (
-              <a
-                key={file.id}
-                href={file.file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                ← 1차로 되돌리기
+              </button>
+            )}
+            {phase === '작지서' && canAct && (
+              <button
+                onClick={async () => {
+                  setLoading(true)
+                  await supabase.from('projects').update({
+                    design_step: project.design_rejected ? 'DESIGN_2ND_WORK' : 'DESIGN_1ST_WORK',
+                    design_expected_date: null,
+                  }).eq('id', project.id)
+                  router.refresh()
+                  setLoading(false)
+                }}
+                disabled={loading}
+                className="text-xs text-gray-400 hover:text-blue-600 underline underline-offset-2 transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                </svg>
-                {file.file_name}
-                <span className="text-xs text-gray-400">
-                  ({file.file_type === 'DESIGN_DRAFT' ? '디자인 시안' : '작지서'})
-                </span>
-              </a>
-            ))}
+                ← 디자인으로 되돌리기
+              </button>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* 단계 진행 버튼 */}
-      {(isDesigner || isDesignLeader) && project.design_step && (
-        <button
-          onClick={handleNextStep}
-          disabled={loading}
-          className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
-        >
-          {loading ? '처리 중...' : currentStepIdx === STEP_ORDER.length - 1
-            ? '작지서 PM팀 전달 → 샘플 제작 시작'
-            : `다음 단계: ${DESIGN_STEPS[currentStepIdx + 1]?.label}`}
-        </button>
+          {/* 상태 버튼 */}
+          {canAct ? (
+            <div className="flex flex-wrap gap-2">
+              {buttons.map((btn) => {
+                const isActive = activeStatus === btn.key
+                return (
+                  <button
+                    key={btn.key}
+                    onClick={() => handleStatusClick(btn.key)}
+                    disabled={loading}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all disabled:opacity-50 ${
+                      isActive
+                        ? btn.color + ' border-opacity-100 shadow-sm scale-105'
+                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {btn.label}
+                    {isActive && ' ●'}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            /* 읽기 전용 상태 표시 */
+            <div className="flex flex-wrap gap-2">
+              {buttons.map((btn) => (
+                <div
+                  key={btn.key}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium border-2 ${
+                    activeStatus === btn.key
+                      ? btn.color
+                      : 'bg-white text-gray-300 border-gray-100'
+                  }`}
+                >
+                  {btn.label}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 예상 완료일 */}
+          {canAct && phase !== '작지서' && (
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-500 shrink-0">예상 완료일</label>
+              <input
+                type="date"
+                value={expectedDate}
+                onChange={(e) => setExpectedDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={saveDate}
+                disabled={!expectedDate}
+                className="text-sm text-blue-600 font-medium hover:text-blue-700 disabled:opacity-30"
+              >
+                저장
+              </button>
+            </div>
+          )}
+
+          {canAct && phase === '작지서' && (
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-500 shrink-0">예상 완료일</label>
+              <input
+                type="date"
+                value={expectedDate}
+                onChange={(e) => setExpectedDate(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={saveDate}
+                disabled={!expectedDate}
+                className="text-sm text-blue-600 font-medium hover:text-blue-700 disabled:opacity-30"
+              >
+                저장
+              </button>
+            </div>
+          )}
+
+          {/* 저장된 예상 완료일 표시 */}
+          {project.design_expected_date && (
+            <p className="text-xs text-gray-400">
+              예상 완료일: {new Date(project.design_expected_date).toLocaleDateString('ko-KR')}
+            </p>
+          )}
+
+          {/* 작지서 완료 → PM 전달 안내 */}
+          {phase === '작지서' && project.design_step === 'WORK_ORDER_SENT' && (
+            <div className="mt-2 p-3 bg-green-50 rounded-xl border border-green-200 text-sm text-green-700 font-medium">
+              ✅ 작지서가 PM팀으로 전달되었습니다
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

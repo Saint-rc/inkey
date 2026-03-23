@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
 const ROLES = [
-  { value: 'PLANNER', label: '기획자', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'PM', label: 'PM', color: 'bg-blue-100 text-blue-700' },
+  { value: 'PLANNER', label: 'PM', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'PM', label: '상품기획', color: 'bg-blue-100 text-blue-700' },
   { value: 'DESIGN_LEADER', label: '디자인리더', color: 'bg-purple-100 text-purple-700' },
   { value: 'DESIGNER', label: '디자이너', color: 'bg-pink-100 text-pink-700' },
 ]
