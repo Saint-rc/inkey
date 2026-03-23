@@ -201,11 +201,11 @@ function isOverdue(dateStr: string | null | undefined) {
 }
 
 const PIPELINE_FILTER = [
-  { key: null,        label: '전체',     activeClass: 'bg-gray-700 text-white',    badgeClass: 'bg-white/20 text-white' },
-  { key: 'INITIATED', label: '발의',     activeClass: 'bg-yellow-400 text-white',  badgeClass: 'bg-white/30 text-white' },
-  { key: 'PM_REVIEW', label: '상품기획',  activeClass: 'bg-blue-500 text-white',    badgeClass: 'bg-white/20 text-white' },
-  { key: 'DESIGN',    label: '디자인',   activeClass: 'bg-purple-500 text-white',  badgeClass: 'bg-white/20 text-white' },
-  { key: 'SAMPLING',  label: '샘플/양산', activeClass: 'bg-orange-500 text-white', badgeClass: 'bg-white/20 text-white' },
+  { key: null,        label: '전체',       activeClass: 'bg-gray-700 text-white',    badgeClass: 'bg-white/20 text-white' },
+  { key: 'INITIATED', label: '발의',       activeClass: 'bg-yellow-400 text-white',  badgeClass: 'bg-white/30 text-white' },
+  { key: 'PM_REVIEW', label: '상품기획',   activeClass: 'bg-blue-500 text-white',    badgeClass: 'bg-white/20 text-white' },
+  { key: 'DESIGN',    label: '디자인',     activeClass: 'bg-purple-500 text-white',  badgeClass: 'bg-white/20 text-white' },
+  { key: 'SAMPLING',  label: '샘플/양산',  activeClass: 'bg-orange-500 text-white',  badgeClass: 'bg-white/20 text-white' },
 ]
 
 export default function TrackerClient({
@@ -220,6 +220,21 @@ export default function TrackerClient({
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
 
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // 일정 초과 프로젝트 ID 집합 (CLOSED 제외, pm_adjusted_date 또는 auto_estimated_date가 오늘 이전)
+  const overdueProjectIds = useMemo(() => {
+    const ids = new Set<number>()
+    for (const s of schedules) {
+      const project = projects.find((p) => p.id === s.project_id)
+      if (!project || project.status === 'CLOSED') continue
+      const date = s.pm_adjusted_date ?? s.auto_estimated_date
+      if (date && new Date(date) < today) ids.add(s.project_id)
+    }
+    return ids
+  }, [schedules, projects])
+
   // 디자이너 목록 (중복 제거)
   const designerNames = useMemo(() => {
     const names = new Set<string>()
@@ -231,7 +246,11 @@ export default function TrackerClient({
 
   const filtered = useMemo(() => {
     let result = projects
-    if (statusFilter) result = result.filter((p) => p.status === statusFilter)
+    if (statusFilter === 'OVERDUE') {
+      result = result.filter((p) => overdueProjectIds.has(p.id))
+    } else if (statusFilter) {
+      result = result.filter((p) => p.status === statusFilter)
+    }
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter((p) => {
@@ -248,7 +267,7 @@ export default function TrackerClient({
       if (!b.target_launch_date) return -1
       return new Date(a.target_launch_date).getTime() - new Date(b.target_launch_date).getTime()
     })
-  }, [projects, search, filterType, statusFilter])
+  }, [projects, search, filterType, statusFilter, overdueProjectIds])
 
   const countByStatus = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -283,6 +302,26 @@ export default function TrackerClient({
             </button>
           )
         })}
+
+        {/* 구분선 */}
+        <div className="w-px h-5 bg-gray-200 mx-1 shrink-0" />
+
+        {/* 일정체크필요 */}
+        <button
+          onClick={() => setStatusFilter(statusFilter === 'OVERDUE' ? null : 'OVERDUE')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+            statusFilter === 'OVERDUE'
+              ? 'bg-red-500 text-white'
+              : 'text-red-500 hover:bg-red-50'
+          }`}
+        >
+          ⚠ 일정체크필요
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+            statusFilter === 'OVERDUE' ? 'bg-white/20 text-white' : 'bg-red-100 text-red-500'
+          }`}>
+            {overdueProjectIds.size}
+          </span>
+        </button>
       </div>
 
       {/* 검색 바 */}
@@ -346,7 +385,12 @@ export default function TrackerClient({
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="min-w-0">
-                      <p className="font-semibold text-gray-900 truncate">{project.title}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-gray-900 truncate">{project.title}</p>
+                        {overdueProjectIds.has(project.id) && (
+                          <span className="text-xs text-red-500 font-medium shrink-0">⚠ 일정초과</span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-500 mt-0.5 font-medium">{project.item_name}</p>
                     </div>
                     {project.design_step && (
