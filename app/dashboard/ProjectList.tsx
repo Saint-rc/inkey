@@ -1,9 +1,157 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+
+function LaunchScheduleModal({
+  projects,
+  onClose,
+}: {
+  projects: any[]
+  onClose: () => void
+}) {
+  const withLaunch = projects.filter((p) => p.target_launch_date)
+
+  const grouped = useMemo(() => {
+    const map: Record<string, any[]> = {}
+    withLaunch.forEach((p) => {
+      const key = p.target_launch_date
+      if (!map[key]) map[key] = []
+      map[key].push(p)
+    })
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
+  }, [projects])
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
+  }
+
+  const getDaysLeft = (dateStr: string) => {
+    const d = new Date(dateStr)
+    d.setHours(0, 0, 0, 0)
+    const diff = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    return diff
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">출시 일정</h2>
+            <p className="text-xs text-gray-400 mt-0.5">출시 목표일별 품목 현황</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* 바디 */}
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
+          {grouped.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-3xl mb-2">📅</div>
+              <p className="text-sm">출시 목표일이 등록된 프로젝트가 없습니다</p>
+            </div>
+          ) : (
+            grouped.map(([dateKey, items]) => {
+              const daysLeft = getDaysLeft(dateKey)
+              const isPast = daysLeft < 0
+              const isClose = daysLeft >= 0 && daysLeft <= 30
+
+              return (
+                <div key={dateKey}>
+                  {/* 날짜 헤더 */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                        isPast
+                          ? 'bg-gray-100 text-gray-500'
+                          : isClose
+                          ? 'bg-red-50 text-red-600'
+                          : 'bg-blue-50 text-blue-700'
+                      }`}
+                    >
+                      {formatDate(dateKey)}
+                    </div>
+                    <span
+                      className={`text-xs font-medium ${
+                        isPast ? 'text-gray-400' : isClose ? 'text-red-500' : 'text-blue-500'
+                      }`}
+                    >
+                      {isPast
+                        ? `${Math.abs(daysLeft)}일 전`
+                        : daysLeft === 0
+                        ? '오늘'
+                        : `D-${daysLeft}`}
+                    </span>
+                    <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                      {items.length}개 품목
+                    </span>
+                  </div>
+
+                  {/* 품목 목록 */}
+                  <div className="space-y-2 ml-1">
+                    {items.map((p: any) => (
+                      <Link
+                        key={p.id}
+                        href={`/projects/${p.id}`}
+                        onClick={onClose}
+                        className="flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-blue-50 rounded-xl border border-transparent hover:border-blue-200 transition-all group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-800 group-hover:text-blue-700 truncate">
+                            {p.item_name || p.title}
+                          </p>
+                          {p.item_name && (
+                            <p className="text-xs text-gray-400 truncate">{p.title}</p>
+                          )}
+                        </div>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_COLOR[p.status] ?? 'bg-gray-100 text-gray-500'}`}
+                        >
+                          {STATUS_LABEL[p.status] ?? p.status}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* 푸터 */}
+        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
+          <p className="text-xs text-gray-400">
+            출시일 등록 품목 <span className="font-medium text-gray-600">{withLaunch.length}</span>개
+            / 전체 <span className="font-medium text-gray-600">{projects.length}</span>개
+          </p>
+          <button
+            onClick={onClose}
+            className="text-xs text-gray-500 hover:text-gray-700 font-medium px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const STATUS_LABEL: Record<string, string> = {
   INITIATED: '발의됨',
@@ -40,6 +188,7 @@ export default function ProjectList({
   const supabase = createClient()
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [showLaunchModal, setShowLaunchModal] = useState(false)
 
   const canDelete = (project: any) =>
     profile?.is_admin || project.planner_id === profile?.id
@@ -73,6 +222,20 @@ export default function ProjectList({
 
   return (
     <div className="space-y-6">
+      {showLaunchModal && (
+        <LaunchScheduleModal projects={projects} onClose={() => setShowLaunchModal(false)} />
+      )}
+
+      {/* 출시일정 버튼 */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowLaunchModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-all shadow-sm"
+        >
+          <span>📅</span> 출시일정
+        </button>
+      </div>
+
       {/* 상태별 카운트 카드 */}
       <div className="grid grid-cols-5 gap-3">
         {Object.entries(STATUS_LABEL).map(([key, label]) => {
