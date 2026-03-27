@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+const MONTH_NAMES = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
+
 function LaunchScheduleModal({
   projects,
   onClose,
@@ -12,135 +14,235 @@ function LaunchScheduleModal({
   projects: any[]
   onClose: () => void
 }) {
-  const withLaunch = projects.filter((p) => p.target_launch_date)
-
-  const grouped = useMemo(() => {
-    const map: Record<string, any[]> = {}
-    withLaunch.forEach((p) => {
-      const key = p.target_launch_date
-      if (!map[key]) map[key] = []
-      map[key].push(p)
-    })
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-  }, [projects])
-
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+  const [viewYear, setViewYear] = useState(today.getFullYear())
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
-  }
+  const withLaunch = projects.filter((p) => p.target_launch_date)
 
-  const getDaysLeft = (dateStr: string) => {
-    const d = new Date(dateStr)
-    d.setHours(0, 0, 0, 0)
-    const diff = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    return diff
-  }
+  // year → month(0~11) → day → items
+  const byYearMonth = useMemo(() => {
+    const map: Record<number, Record<number, Record<number, any[]>>> = {}
+    withLaunch.forEach((p) => {
+      const d = new Date(p.target_launch_date)
+      const y = d.getFullYear()
+      const m = d.getMonth()
+      const day = d.getDate()
+      if (!map[y]) map[y] = {}
+      if (!map[y][m]) map[y][m] = {}
+      if (!map[y][m][day]) map[y][m][day] = []
+      map[y][m][day].push(p)
+    })
+    return map
+  }, [projects])
+
+  const yearData = byYearMonth[viewYear] ?? {}
+  const totalInYear = Object.values(yearData).flatMap(m => Object.values(m).flat()).length
+
+  // 연도 범위: 데이터가 있는 연도 + 현재 연도
+  const allYears = useMemo(() => {
+    const years = new Set([today.getFullYear(), ...Object.keys(byYearMonth).map(Number)])
+    return Array.from(years).sort()
+  }, [byYearMonth])
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col">
-        {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">출시 일정</h2>
-            <p className="text-xs text-gray-400 mt-0.5">출시 목표일별 품목 현황</p>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col">
+
+        {/* ── 헤더 ── */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-5">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">출시 일정</h2>
+              <p className="text-xs text-gray-400 mt-0.5">출시 목표일별 품목 연간 현황</p>
+            </div>
+            {/* 연도 탐색 */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-xl px-1 py-1">
+              <button
+                onClick={() => setViewYear((y) => y - 1)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:bg-white hover:text-gray-800 transition-all text-sm font-bold"
+              >
+                ‹
+              </button>
+              <span className="font-bold text-gray-800 text-sm px-2 min-w-[56px] text-center">
+                {viewYear}년
+              </span>
+              <button
+                onClick={() => setViewYear((y) => y + 1)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:bg-white hover:text-gray-800 transition-all text-sm font-bold"
+              >
+                ›
+              </button>
+            </div>
+            {/* 연도별 총계 */}
+            {totalInYear > 0 && (
+              <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full">
+                {viewYear}년 총 {totalInYear}개 품목
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors text-lg"
           >
             ✕
           </button>
         </div>
 
-        {/* 바디 */}
-        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-5">
-          {grouped.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <div className="text-3xl mb-2">📅</div>
-              <p className="text-sm">출시 목표일이 등록된 프로젝트가 없습니다</p>
-            </div>
-          ) : (
-            grouped.map(([dateKey, items]) => {
-              const daysLeft = getDaysLeft(dateKey)
-              const isPast = daysLeft < 0
-              const isClose = daysLeft >= 0 && daysLeft <= 30
+        {/* ── 12개월 그리드 ── */}
+        <div className="overflow-y-auto flex-1 p-5">
+          <div className="grid grid-cols-4 gap-3">
+            {Array.from({ length: 12 }, (_, monthIdx) => {
+              const dayMap = yearData[monthIdx] ?? {}
+              const hasItems = Object.keys(dayMap).length > 0
+              const totalItems = Object.values(dayMap).flat().length
+              const isCurrentMonth =
+                today.getFullYear() === viewYear && today.getMonth() === monthIdx
+              const isPastMonth =
+                viewYear < today.getFullYear() ||
+                (viewYear === today.getFullYear() && monthIdx < today.getMonth())
 
               return (
-                <div key={dateKey}>
-                  {/* 날짜 헤더 */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <div
-                      className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                        isPast
-                          ? 'bg-gray-100 text-gray-500'
-                          : isClose
-                          ? 'bg-red-50 text-red-600'
-                          : 'bg-blue-50 text-blue-700'
-                      }`}
-                    >
-                      {formatDate(dateKey)}
-                    </div>
+                <div
+                  key={monthIdx}
+                  className={`rounded-xl border flex flex-col transition-all ${
+                    isCurrentMonth
+                      ? 'border-blue-300 bg-blue-50 shadow-sm'
+                      : hasItems
+                      ? 'border-gray-200 bg-white shadow-sm'
+                      : 'border-gray-100 bg-gray-50'
+                  }`}
+                >
+                  {/* 월 헤더 */}
+                  <div
+                    className={`flex items-center justify-between px-3 py-2 border-b rounded-t-xl ${
+                      isCurrentMonth
+                        ? 'border-blue-200 bg-blue-100'
+                        : hasItems
+                        ? 'border-gray-100 bg-gray-50'
+                        : 'border-transparent'
+                    }`}
+                  >
                     <span
-                      className={`text-xs font-medium ${
-                        isPast ? 'text-gray-400' : isClose ? 'text-red-500' : 'text-blue-500'
+                      className={`font-bold text-sm ${
+                        isCurrentMonth
+                          ? 'text-blue-700'
+                          : hasItems
+                          ? 'text-gray-800'
+                          : isPastMonth
+                          ? 'text-gray-300'
+                          : 'text-gray-400'
                       }`}
                     >
-                      {isPast
-                        ? `${Math.abs(daysLeft)}일 전`
-                        : daysLeft === 0
-                        ? '오늘'
-                        : `D-${daysLeft}`}
+                      {MONTH_NAMES[monthIdx]}
+                      {isCurrentMonth && (
+                        <span className="ml-1.5 text-[10px] font-semibold text-blue-500 bg-blue-100 px-1.5 py-0.5 rounded-full">
+                          이번달
+                        </span>
+                      )}
                     </span>
-                    <span className="ml-auto text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                      {items.length}개 품목
-                    </span>
+                    {totalItems > 0 && (
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          isCurrentMonth
+                            ? 'bg-blue-200 text-blue-700'
+                            : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {totalItems}
+                      </span>
+                    )}
                   </div>
 
                   {/* 품목 목록 */}
-                  <div className="space-y-2 ml-1">
-                    {items.map((p: any) => (
-                      <Link
-                        key={p.id}
-                        href={`/projects/${p.id}`}
-                        onClick={onClose}
-                        className="flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-blue-50 rounded-xl border border-transparent hover:border-blue-200 transition-all group"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-800 group-hover:text-blue-700 truncate">
-                            {p.item_name || p.title}
-                          </p>
-                          {p.item_name && (
-                            <p className="text-xs text-gray-400 truncate">{p.title}</p>
-                          )}
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_COLOR[p.status] ?? 'bg-gray-100 text-gray-500'}`}
-                        >
-                          {STATUS_LABEL[p.status] ?? p.status}
-                        </span>
-                      </Link>
-                    ))}
+                  <div className="p-2.5 flex-1 flex flex-col gap-1.5">
+                    {hasItems ? (
+                      Object.entries(dayMap)
+                        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                        .map(([day, items]) => (
+                          <div key={day}>
+                            {/* 날짜 구분선 */}
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span
+                                className={`text-[11px] font-semibold shrink-0 ${
+                                  isCurrentMonth ? 'text-blue-500' : 'text-gray-400'
+                                }`}
+                              >
+                                {day}일
+                              </span>
+                              <div className="flex-1 h-px bg-gray-200" />
+                            </div>
+                            {/* 품목 카드들 */}
+                            {(items as any[]).map((p) => (
+                              <Link
+                                key={p.id}
+                                href={`/projects/${p.id}`}
+                                onClick={onClose}
+                                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white border border-gray-100 hover:border-blue-300 hover:bg-blue-50 transition-all group mb-1 block"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-gray-700 group-hover:text-blue-700 truncate leading-tight">
+                                    {p.item_name || p.title}
+                                  </p>
+                                  {p.item_name && p.title !== p.item_name && (
+                                    <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">
+                                      {p.title}
+                                    </p>
+                                  )}
+                                </div>
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                                    STATUS_COLOR[p.status] ?? 'bg-gray-100 text-gray-500'
+                                  }`}
+                                >
+                                  {STATUS_LABEL[p.status] ?? p.status}
+                                </span>
+                              </Link>
+                            ))}
+                          </div>
+                        ))
+                    ) : (
+                      <div className="flex items-center justify-center flex-1 min-h-[64px]">
+                        <span className="text-xs text-gray-300">-</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
-            })
-          )}
+            })}
+          </div>
         </div>
 
-        {/* 푸터 */}
-        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-          <p className="text-xs text-gray-400">
-            출시일 등록 품목 <span className="font-medium text-gray-600">{withLaunch.length}</span>개
-            / 전체 <span className="font-medium text-gray-600">{projects.length}</span>개
-          </p>
+        {/* ── 푸터 ── */}
+        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-4">
+            <p className="text-xs text-gray-400">
+              출시일 등록{' '}
+              <span className="font-semibold text-gray-600">{withLaunch.length}</span>개 품목
+              {' '}/ 전체{' '}
+              <span className="font-semibold text-gray-600">{projects.length}</span>개
+            </p>
+            {/* 연도 빠른 이동 */}
+            <div className="flex items-center gap-1">
+              {allYears.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setViewYear(y)}
+                  className={`text-xs px-2 py-0.5 rounded-md font-medium transition-all ${
+                    y === viewYear
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="text-xs text-gray-500 hover:text-gray-700 font-medium px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
