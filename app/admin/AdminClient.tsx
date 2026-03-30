@@ -15,22 +15,48 @@ export default function AdminClient({ users }: { users: any[] }) {
   const supabase = createClient()
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+
+  const showToast = (msg: string, ok: boolean) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     setLoading(userId)
-    await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
-    router.refresh()
+    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId)
+    if (error) {
+      showToast(`역할 변경 실패: ${error.message}`, false)
+    } else {
+      showToast('역할이 변경되었습니다', true)
+      router.refresh()
+    }
     setLoading(null)
   }
 
   const handleAdminToggle = async (userId: string, current: boolean) => {
     setLoading(userId)
-    await supabase.from('profiles').update({ is_admin: !current }).eq('id', userId)
-    router.refresh()
+    const { error } = await supabase.from('profiles').update({ is_admin: !current }).eq('id', userId)
+    if (error) {
+      showToast(`권한 변경 실패: ${error.message}`, false)
+    } else {
+      showToast(current ? '관리자 권한을 해제했습니다' : '관리자로 지정했습니다', true)
+      router.refresh()
+    }
     setLoading(null)
   }
 
   return (
+    <>
+    {/* 토스트 알림 */}
+    {toast && (
+      <div className={`fixed top-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${
+        toast.ok ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+      }`}>
+        <span>{toast.ok ? '✓' : '✕'}</span>
+        {toast.msg}
+      </div>
+    )}
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-100">
         <p className="text-sm text-gray-500">총 {users.length}명</p>
@@ -86,5 +112,6 @@ export default function AdminClient({ users }: { users: any[] }) {
         })}
       </div>
     </div>
+    </>
   )
 }
