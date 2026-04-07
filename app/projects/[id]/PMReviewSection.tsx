@@ -58,8 +58,8 @@ export default function PMReviewSection({
     )
   )
 
-  const isPM = profile?.role === 'PM'
-  const isEditable = isPM && (project.status === 'INITIATED' || project.status === 'PM_REVIEW')
+  const isPM = true
+  const isEditable = project.status === 'INITIATED' || project.status === 'PM_REVIEW'
 
   const handleDateChange = (stage: string, value: string) => {
     setStageDates((prev) => ({ ...prev, [stage]: value }))

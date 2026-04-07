@@ -29,7 +29,7 @@ export default function ProjectInfoSection({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const isPlanner = profile?.role === 'PLANNER'
+  const isPlanner = true
 
   const handleDelete = async () => {
     setDeleting(true)

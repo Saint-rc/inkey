@@ -38,12 +38,6 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound()
 
-  // PM이 INITIATED 프로젝트를 열면 PM_REVIEW로 자동 전환
-  if (profile?.role === 'PM' && project.status === 'INITIATED') {
-    await supabase.from('projects').update({ status: 'PM_REVIEW' }).eq('id', id)
-    project.status = 'PM_REVIEW'
-  }
-
   const { data: schedules } = await supabase
     .from('project_schedules')
     .select('*')
@@ -59,12 +53,10 @@ export default async function ProjectDetailPage({
   const { data: designers } = await supabase
     .from('profiles')
     .select('id, name, role')
-    .in('role', ['DESIGNER', 'DESIGN_LEADER'])
 
   const { data: pms } = await supabase
     .from('profiles')
     .select('id, name')
-    .eq('role', 'PM')
 
   return (
     <div className="min-h-screen bg-gray-50">

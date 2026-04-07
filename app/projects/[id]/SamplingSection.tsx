@@ -74,7 +74,7 @@ export default function SamplingSection({
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
 
-  const isPM = profile?.role === 'PM'
+  const isPM = true
   const phase = getPhase(project.sample_step)
   const phaseOrder = (['1차샘플', '2차샘플', '양산·운송'] as SamplePhase[]).indexOf(phase)
 
