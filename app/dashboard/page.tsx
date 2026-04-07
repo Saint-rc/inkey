@@ -35,12 +35,17 @@ export default async function DashboardPage() {
   const { data: projects } = await supabase
     .from('projects')
     .select(`
-      id, title, status, item_name, target_delivery_date, target_launch_date, created_at, planner_id,
+      id, title, status, item_name, target_delivery_date, target_launch_date, created_at, planner_id, sample_step,
       planner:profiles!projects_planner_id_fkey(name),
       pm:profiles!projects_pm_id_fkey(name),
       designer:profiles!projects_designer_id_fkey(name)
     `)
     .order('created_at', { ascending: false })
+
+  const { data: schedules } = await supabase
+    .from('project_schedules')
+    .select('project_id, stage_name, pm_adjusted_date, auto_estimated_date')
+    .in('stage_name', ['SAMPLE_1ST', 'SAMPLE_2ND'])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -52,17 +57,15 @@ export default async function DashboardPage() {
             <h1 className="text-2xl font-bold text-gray-900">프로젝트 현황</h1>
             <p className="text-gray-500 text-sm mt-0.5">전체 {projects?.length ?? 0}개</p>
           </div>
-          {profile?.role === 'PLANNER' && (
-            <Link
-              href="/projects/new"
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
-            >
-              <span>+</span> 새 프로젝트
-            </Link>
-          )}
+          <Link
+            href="/projects/new"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <span>+</span> 새 프로젝트
+          </Link>
         </div>
 
-        <ProjectList projects={projects ?? []} profile={profile} />
+        <ProjectList projects={projects ?? []} profile={profile} schedules={schedules ?? []} />
       </div>
     </div>
   )

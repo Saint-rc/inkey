@@ -282,9 +282,11 @@ const STATUS_COUNT_COLOR: Record<string, { dot: string; active: string }> = {
 export default function ProjectList({
   projects,
   profile,
+  schedules = [],
 }: {
   projects: any[]
   profile: any
+  schedules?: any[]
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -397,6 +399,23 @@ export default function ProjectList({
                 </div>
               </div>
               <div className="text-right shrink-0 space-y-1">
+                {/* 샘플 도착일 (SAMPLING 단계만) */}
+                {project.status === 'SAMPLING' && (() => {
+                  const is2nd = ['SAMPLE_2ND_PRODUCTION','SAMPLE_2ND_REVIEW'].includes(project.sample_step ?? '')
+                  const stageName = is2nd ? 'SAMPLE_2ND' : 'SAMPLE_1ST'
+                  const sc = schedules.find((s: any) => s.project_id === project.id && s.stage_name === stageName)
+                  const date = sc?.pm_adjusted_date ?? sc?.auto_estimated_date
+                  if (!date) return null
+                  const isLate = new Date(date) < new Date()
+                  return (
+                    <div>
+                      <div className="text-xs text-gray-400">{is2nd ? '2차 샘플 도착일' : '1차 샘플 도착일'}</div>
+                      <div className={`text-sm font-medium ${isLate ? 'text-red-500' : 'text-orange-500'}`}>
+                        {new Date(date).toLocaleDateString('ko-KR')}
+                      </div>
+                    </div>
+                  )
+                })()}
                 <div>
                   <div className="text-xs text-gray-400">목표 입고일</div>
                   <div className="text-sm font-medium text-gray-700">
