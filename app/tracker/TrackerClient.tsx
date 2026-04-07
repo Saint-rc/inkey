@@ -400,6 +400,23 @@ export default function TrackerClient({
                     )}
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
+                    {/* 샘플 도착일 */}
+                    {['SAMPLING'].includes(project.status) && (() => {
+                      const phase = project.sample_step
+                      const is2nd = ['SAMPLE_2ND_PRODUCTION','SAMPLE_2ND_REVIEW'].includes(phase ?? '')
+                      const stageName = is2nd ? 'SAMPLE_2ND' : 'SAMPLE_1ST'
+                      const sc = pSchedules.find((s) => s.stage_name === stageName)
+                      const date = sc?.pm_adjusted_date ?? sc?.auto_estimated_date
+                      if (!date) return null
+                      return (
+                        <div className="text-right hidden sm:block">
+                          <p className="text-xs text-gray-400">{is2nd ? '2차 샘플 도착일' : '1차 샘플 도착일'}</p>
+                          <p className={`text-sm font-semibold ${isOverdue(date) ? 'text-red-500' : 'text-orange-500'}`}>
+                            {formatDate(date)}
+                          </p>
+                        </div>
+                      )
+                    })()}
                     <div className="text-right hidden sm:block">
                       <p className="text-xs text-gray-400">목표 입고일</p>
                       {(() => {
