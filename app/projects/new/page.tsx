@@ -144,7 +144,7 @@ export default function NewProjectPage() {
                 value={form.title}
                 onChange={handleChange}
                 required
-                placeholder="예: BT21 아크릴 스탠드 2025 여름"
+                placeholder="예: 조앤프렌즈"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -159,7 +159,7 @@ export default function NewProjectPage() {
                 value={form.item_name}
                 onChange={handleChange}
                 required
-                placeholder="예: 아크릴 스탠드, 틴케이스"
+                placeholder="예: 레진키캡"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -172,7 +172,7 @@ export default function NewProjectPage() {
                   name="material"
                   value={form.material}
                   onChange={handleChange}
-                  placeholder="예: 아크릴 3T"
+                  placeholder="예: 레진"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
