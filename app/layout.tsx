@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "프로젝트 매니저",
-  description: "로이체 프로젝트 관리 시스템",
+  title: "INKEY 프로젝트",
+  description: "INKEY 프로젝트 관리 시스템",
 };
 
 export default function RootLayout({
