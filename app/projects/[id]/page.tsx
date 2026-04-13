@@ -2,10 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import ProjectTimeline from '@/components/ProjectTimeline'
-import PMReviewSection from './PMReviewSection'
-import DesignSection from './DesignSection'
-import SamplingSection from './SamplingSection'
-import ProjectInfoSection from './ProjectInfoSection'
+import ProjectTabs from './ProjectTabs'
 
 export default async function ProjectDetailPage({
   params,
@@ -63,38 +60,14 @@ export default async function ProjectDetailPage({
       <Navbar userName={profile?.name} userRole={profile?.role} isAdmin={profile?.is_admin} />
       <ProjectTimeline currentStatus={project.status} schedules={schedules ?? []} />
 
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-
-        {/* 프로젝트 기본 정보 */}
-        <ProjectInfoSection project={project} files={files ?? []} profile={profile} />
-
-        {/* PM 검토 섹션 */}
-        <PMReviewSection
-          project={project}
-          schedules={schedules ?? []}
-          profile={profile}
-          pms={pms ?? []}
-        />
-
-        {/* 디자인 섹션 */}
-        {['DESIGN', 'SAMPLING', 'CLOSED'].includes(project.status) && (
-          <DesignSection
-            project={project}
-            files={files ?? []}
-            profile={profile}
-            designers={designers ?? []}
-          />
-        )}
-
-        {/* 샘플/양산 섹션 */}
-        {['SAMPLING', 'CLOSED'].includes(project.status) && (
-          <SamplingSection
-            project={project}
-            schedules={schedules ?? []}
-            profile={profile}
-          />
-        )}
-      </div>
+      <ProjectTabs
+        project={project}
+        schedules={schedules ?? []}
+        files={files ?? []}
+        designers={designers ?? []}
+        pms={pms ?? []}
+        profile={profile}
+      />
     </div>
   )
 }
