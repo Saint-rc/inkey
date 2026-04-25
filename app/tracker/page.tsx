@@ -19,7 +19,7 @@ export default async function TrackerPage() {
     .from('projects')
     .select(`
       id, title, item_name, status, design_step, design_expected_date, design_rejected,
-      sample_step, start_date, target_delivery_date, target_launch_date,
+      sample_step, start_date, target_delivery_date, target_launch_date, thumbnail_url,
       planner:profiles!projects_planner_id_fkey(name),
       pm:profiles!projects_pm_id_fkey(name),
       design_leader:profiles!projects_design_leader_id_fkey(name),

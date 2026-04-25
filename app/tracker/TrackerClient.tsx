@@ -383,7 +383,23 @@ export default function TrackerClient({
               >
                 {/* 상단: 프로젝트명 + 날짜 + 화살표 */}
                 <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* 썸네일 */}
+                    <div className="shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center">
+                      {project.thumbnail_url ? (
+                        <img src={project.thumbnail_url} alt={project.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className={`w-full h-full flex items-center justify-center text-white text-base font-bold ${
+                          project.status === 'INITIATED' ? 'bg-gradient-to-br from-yellow-400 to-orange-400' :
+                          project.status === 'PM_REVIEW' ? 'bg-gradient-to-br from-blue-400 to-blue-600' :
+                          project.status === 'DESIGN' ? 'bg-gradient-to-br from-purple-400 to-purple-600' :
+                          project.status === 'SAMPLING' ? 'bg-gradient-to-br from-orange-400 to-red-400' :
+                          'bg-gradient-to-br from-green-400 to-emerald-600'
+                        }`}>
+                          {(project.title || '?')[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-gray-900 truncate">{project.title}</p>
@@ -392,6 +408,7 @@ export default function TrackerClient({
                         )}
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 font-medium">{project.item_name}</p>
+                    </div>
                     </div>
                     {project.design_step && (
                       <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full shrink-0">

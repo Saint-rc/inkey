@@ -35,7 +35,7 @@ export default async function DashboardPage() {
   const { data: projects } = await supabase
     .from('projects')
     .select(`
-      id, title, status, item_name, target_delivery_date, target_launch_date, created_at, planner_id, sample_step,
+      id, title, status, item_name, target_delivery_date, target_launch_date, created_at, planner_id, sample_step, thumbnail_url,
       planner:profiles!projects_planner_id_fkey(name),
       pm:profiles!projects_pm_id_fkey(name),
       designer:profiles!projects_designer_id_fkey(name)
