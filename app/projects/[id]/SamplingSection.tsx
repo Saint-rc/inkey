@@ -540,3 +540,231 @@ export default function SamplingSection({
     </>
   )
 }
+
+// ── 디자인팀에서 보는 샘플 현황 (검수중·반려만 액션 가능) ──
+export function SamplingPreviewForDesign({
+  project,
+  schedules,
+}: {
+  project: any
+  schedules: any[]
+}) {
+  const router = useRouter()
+  const supabase = createClient()
+  const [loading, setLoading] = useState(false)
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [pendingBtn, setPendingBtn] = useState<StepBtn | null>(null)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  const phase = getPhase(project.sample_step)
+  const phaseOrder = (['1차샘플', '2차샘플', '양산·운송'] as SamplePhase[]).indexOf(phase)
+  const phases: SamplePhase[] = ['1차샘플', '2차샘플', '양산·운송']
+  const buttons = STEP_BUTTONS[phase]
+
+  const activeKey = (() => {
+    const step = project.sample_step
+    if (step === 'SAMPLE_1ST_REJECTED') return 'SAMPLE_2ND_PRODUCTION'
+    if (step === 'SAMPLE_2ND_REJECTED') return 'SAMPLE_2ND_REJECTED'
+    return step
+  })()
+
+  // 디자인팀이 클릭 가능한 버튼: 검수중, 검수반려만
+  const DESIGN_ACTIONABLE_KEYS = [
+    'SAMPLE_ARRIVED',        // 1차 검수중
+    'SAMPLE_2ND_REVIEW',     // 2차 검수중
+    'SAMPLE_2ND_PRODUCTION', // 1차 검수반려 → 2차로
+    'SAMPLE_2ND_REJECTED',   // 2차 검수반려(재제작)
+  ]
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    const { data } = await supabase
+      .from('sample_review_history')
+      .select('*')
+      .eq('project_id', project.id)
+      .order('created_at', { ascending: false })
+    setHistory(data ?? [])
+    setHistoryLoading(false)
+  }, [project.id])
+
+  const saveHistory = async (fromStep: string | null, toStep: string, note?: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('sample_review_history').insert({
+      project_id: project.id,
+      from_step: fromStep,
+      to_step: toStep,
+      note: note || null,
+      created_by: user?.id ?? null,
+    })
+  }
+
+  const applyStep = async (btn: StepBtn, rejectNote?: string) => {
+    setLoading(true)
+    const prevStep = project.sample_step
+    const isReject = btn.isReject
+    const nextStep = btn.transitionTo ?? btn.key
+    await supabase.from('projects').update({ sample_step: nextStep }).eq('id', project.id)
+    await saveHistory(prevStep, isReject ? 'REJECTED' : nextStep, isReject ? rejectNote : undefined)
+    router.refresh()
+    setLoading(false)
+  }
+
+  const handleStepClick = (btn: StepBtn) => {
+    if (loading) return
+    if (btn.isReject) {
+      setPendingBtn(btn)
+      setShowRejectModal(true)
+      return
+    }
+    applyStep(btn)
+  }
+
+  const handleRejectConfirm = async (note: string) => {
+    setShowRejectModal(false)
+    if (!pendingBtn) return
+    await applyStep(pendingBtn, note)
+    setPendingBtn(null)
+  }
+
+  // 샘플 도착 예정일 (읽기 전용)
+  const currentFields = PHASE_DATE_FIELDS[phase]
+
+  if (!['SAMPLING', 'CLOSED'].includes(project.status)) return null
+
+  return (
+    <>
+      <div className="bg-white rounded-2xl border border-orange-200 p-6">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-base">📦</span>
+            <h2 className="text-base font-bold text-gray-900">상품기획팀 — 샘플/양산 현황</h2>
+            <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium">
+              디자인팀 검수 가능
+            </span>
+          </div>
+          <button
+            onClick={async () => { await loadHistory(); setShowHistoryModal(true) }}
+            disabled={historyLoading}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-orange-600 transition-colors px-2.5 py-1 rounded-lg hover:bg-orange-50 border border-gray-200 hover:border-orange-200"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            검수 히스토리
+          </button>
+        </div>
+
+        {project.status === 'CLOSED' ? (
+          <div className="text-center py-4">
+            <p className="text-sm font-semibold text-green-700">✅ 입고 완료 — 프로젝트 종료</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* 단계 탭 (읽기 전용) */}
+            <div className="flex gap-2">
+              {phases.map((p, i) => {
+                const isDone = i < phaseOrder
+                const isActive = i === phaseOrder
+                return (
+                  <div
+                    key={p}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                      isDone
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : isActive
+                        ? 'bg-orange-500 text-white border-orange-500'
+                        : 'bg-gray-50 text-gray-400 border-gray-200'
+                    }`}
+                  >
+                    {isDone && (
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                    {p}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* 상태 버튼 (검수중·반려만 클릭 가능) */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">
+                <span className="text-orange-500 font-medium">검수중</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 직접 변경 가능합니다
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {buttons.map((btn) => {
+                  const isActive = activeKey === btn.key
+                  const canAct = DESIGN_ACTIONABLE_KEYS.includes(btn.key) || (btn.isReject ?? false)
+                  return canAct ? (
+                    <button
+                      key={btn.key + btn.label}
+                      onClick={() => handleStepClick(btn)}
+                      disabled={loading}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all disabled:opacity-50 ${
+                        isActive
+                          ? btn.color + ' shadow-sm scale-105'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {btn.label}
+                      {isActive && ' ●'}
+                    </button>
+                  ) : (
+                    <div
+                      key={btn.key + btn.label}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium border-2 opacity-50 cursor-default ${
+                        isActive ? btn.color : 'bg-gray-50 text-gray-300 border-gray-100'
+                      }`}
+                      title="상품기획팀에서 변경 가능"
+                    >
+                      {btn.label}
+                      {isActive && ' ●'}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 예상일 (읽기 전용) */}
+            {currentFields.some(f => {
+              const s = schedules.find(sc => sc.stage_name === f.stageName)
+              return s?.pm_adjusted_date || s?.auto_estimated_date
+            }) && (
+              <div className="space-y-1.5 pt-1 border-t border-gray-100">
+                {currentFields.map((f) => {
+                  const s = schedules.find(sc => sc.stage_name === f.stageName)
+                  const date = s?.pm_adjusted_date ?? s?.auto_estimated_date
+                  if (!date) return null
+                  return (
+                    <div key={f.stageName} className="flex items-center gap-3 text-sm">
+                      <span className="text-gray-400 w-40 shrink-0">{f.label}</span>
+                      <span className="font-medium text-gray-700">{formatDate(date)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showRejectModal && (
+        <RejectModal
+          label={pendingBtn?.label ?? '검수 반려'}
+          onConfirm={handleRejectConfirm}
+          onCancel={() => { setShowRejectModal(false); setPendingBtn(null) }}
+        />
+      )}
+      {showHistoryModal && (
+        <HistoryModal
+          history={history}
+          onClose={() => setShowHistoryModal(false)}
+        />
+      )}
+    </>
+  )
+}

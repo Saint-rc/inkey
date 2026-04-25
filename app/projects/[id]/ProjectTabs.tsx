@@ -4,7 +4,7 @@ import { useState } from 'react'
 import ProjectInfoSection from './ProjectInfoSection'
 import PMReviewSection from './PMReviewSection'
 import DesignSection from './DesignSection'
-import SamplingSection from './SamplingSection'
+import SamplingSection, { SamplingPreviewForDesign } from './SamplingSection'
 
 // ── 팀별 탭 정의 ──────────────────────────────────────────
 type TabKey = 'planning' | 'design' | 'production'
@@ -232,12 +232,21 @@ export default function ProjectTabs({
         {activeTab === 'design' && (
           <>
             {['DESIGN', 'SAMPLING', 'CLOSED'].includes(projectStatus) ? (
-              <DesignSection
-                project={project}
-                files={files}
-                profile={profile}
-                designers={designers}
-              />
+              <>
+                <DesignSection
+                  project={project}
+                  files={files}
+                  profile={profile}
+                  designers={designers}
+                />
+                {/* 샘플/양산 단계 진입 시 상품기획팀 현황 + 검수 액션 표시 */}
+                {['SAMPLING', 'CLOSED'].includes(projectStatus) && (
+                  <SamplingPreviewForDesign
+                    project={project}
+                    schedules={schedules}
+                  />
+                )}
+              </>
             ) : (
               <EmptyState
                 icon="🎨"
