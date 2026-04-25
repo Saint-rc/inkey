@@ -10,7 +10,7 @@ const getPhase = (step: string | null): SamplePhase => {
   if (!step) return '1차샘플'
   if (['SAMPLE_REQUESTED', 'SAMPLE_ARRIVED', 'SAMPLE_1ST_REJECTED'].includes(step)) return '1차샘플'
   if (['SAMPLE_2ND_PRODUCTION', 'SAMPLE_2ND_REVIEW', 'SAMPLE_2ND_REJECTED'].includes(step)) return '2차샘플'
-  return '양산·운송'
+  return '양산·운송'  // MASS_PRODUCTION_WAIT, MASS_PRODUCTION_START, SHIPPING_STARTED, WAREHOUSED
 }
 
 type StepBtn = {
@@ -24,21 +24,22 @@ type StepBtn = {
 
 const STEP_BUTTONS: Record<SamplePhase, StepBtn[]> = {
   '1차샘플': [
-    { key: 'SAMPLE_REQUESTED',    label: '샘플제작중', color: 'bg-blue-100 text-blue-700 border-blue-300' },
-    { key: 'SAMPLE_ARRIVED',      label: '검수중',     color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
-    { key: 'MASS_PRODUCTION_START', label: '검수완료', color: 'bg-green-100 text-green-700 border-green-300', transitionTo: 'MASS_PRODUCTION_START' },
-    { key: 'SAMPLE_2ND_PRODUCTION', label: '검수반려', color: 'bg-red-100 text-red-700 border-red-300', transitionTo: 'SAMPLE_2ND_PRODUCTION', isReject: true },
+    { key: 'SAMPLE_REQUESTED',      label: '샘플제작중', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { key: 'SAMPLE_ARRIVED',        label: '검수중',     color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
+    { key: 'MASS_PRODUCTION_WAIT',  label: '검수완료',   color: 'bg-green-100 text-green-700 border-green-300', transitionTo: 'MASS_PRODUCTION_WAIT' },
+    { key: 'SAMPLE_2ND_PRODUCTION', label: '검수반려',   color: 'bg-red-100 text-red-700 border-red-300', transitionTo: 'SAMPLE_2ND_PRODUCTION', isReject: true },
   ],
   '2차샘플': [
     { key: 'SAMPLE_2ND_PRODUCTION', label: '샘플제작중',       color: 'bg-blue-100 text-blue-700 border-blue-300' },
     { key: 'SAMPLE_2ND_REVIEW',     label: '검수중',           color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
-    { key: 'MASS_PRODUCTION_START', label: '검수완료',         color: 'bg-green-100 text-green-700 border-green-300', transitionTo: 'MASS_PRODUCTION_START' },
+    { key: 'MASS_PRODUCTION_WAIT',  label: '검수완료',         color: 'bg-green-100 text-green-700 border-green-300', transitionTo: 'MASS_PRODUCTION_WAIT' },
     { key: 'SAMPLE_2ND_REJECTED',   label: '검수반려(재제작)', color: 'bg-red-100 text-red-700 border-red-300', transitionTo: 'SAMPLE_2ND_PRODUCTION', isReject: true },
   ],
   '양산·운송': [
-    { key: 'MASS_PRODUCTION_START', label: '양산중',   color: 'bg-orange-100 text-orange-700 border-orange-300' },
-    { key: 'SHIPPING_STARTED',      label: '운송중',   color: 'bg-blue-100 text-blue-700 border-blue-300' },
-    { key: 'WAREHOUSED',            label: '입고완료', color: 'bg-green-100 text-green-700 border-green-300', closeProject: true },
+    { key: 'MASS_PRODUCTION_WAIT',  label: '양산대기중', color: 'bg-gray-100 text-gray-600 border-gray-300' },
+    { key: 'MASS_PRODUCTION_START', label: '양산중',     color: 'bg-orange-100 text-orange-700 border-orange-300' },
+    { key: 'SHIPPING_STARTED',      label: '운송중',     color: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { key: 'WAREHOUSED',            label: '입고완료',   color: 'bg-green-100 text-green-700 border-green-300', closeProject: true },
   ],
 }
 
@@ -61,6 +62,7 @@ const STEP_LABEL: Record<string, string> = {
   SAMPLE_ARRIVED:        '검수중',
   SAMPLE_2ND_PRODUCTION: '2차 샘플제작중',
   SAMPLE_2ND_REVIEW:     '2차 검수중',
+  MASS_PRODUCTION_WAIT:  '양산대기중',
   MASS_PRODUCTION_START: '양산중',
   SHIPPING_STARTED:      '운송중',
   WAREHOUSED:            '입고완료',
@@ -257,6 +259,8 @@ export default function SamplingSection({
   const isPM = true
   const phase = getPhase(project.sample_step)
   const phaseOrder = (['1차샘플', '2차샘플', '양산·운송'] as SamplePhase[]).indexOf(phase)
+  const isWaitingProduction = project.sample_step === 'MASS_PRODUCTION_WAIT'
+  const [massProductionDate, setMassProductionDate] = useState('')
 
   const [dates, setDates] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
@@ -361,6 +365,28 @@ export default function SamplingSection({
     setLoading(false)
   }
 
+  // 양산대기 → 양산중 전환 (날짜 필수)
+  const handleStartMassProduction = async () => {
+    if (!massProductionDate || loading) return
+    setLoading(true)
+    // 양산 완료 예정일 저장
+    const existing = schedules.find((s) => s.stage_name === 'MASS_PRODUCTION')
+    if (existing) {
+      await supabase.from('project_schedules').update({ pm_adjusted_date: massProductionDate }).eq('id', existing.id)
+    } else {
+      await supabase.from('project_schedules').insert({
+        project_id: project.id,
+        stage_name: 'MASS_PRODUCTION',
+        auto_estimated_date: massProductionDate,
+        pm_adjusted_date: massProductionDate,
+      })
+    }
+    await supabase.from('projects').update({ sample_step: 'MASS_PRODUCTION_START' }).eq('id', project.id)
+    await saveHistory('MASS_PRODUCTION_WAIT', 'MASS_PRODUCTION_START')
+    router.refresh()
+    setLoading(false)
+  }
+
   const handleShowHistory = async () => {
     await loadHistory()
     setShowHistoryModal(true)
@@ -454,6 +480,8 @@ export default function SamplingSection({
                 const isActive = activeKey === btn.key
                 // 검수완료·검수반려는 디자인팀 전담 → 흐리게 표시
                 const isDesignOnly = phase !== '양산·운송' && (btn.label === '검수완료' || (btn.isReject ?? false))
+                // 양산중 버튼은 양산대기중일 때 날짜 입력 후 별도 처리
+                const isMassProductionStart = btn.key === 'MASS_PRODUCTION_START' && phase === '양산·운송'
                 if (isDesignOnly) {
                   return (
                     <div
@@ -467,6 +495,10 @@ export default function SamplingSection({
                       {isActive && ' ●'}
                     </div>
                   )
+                }
+                if (isMassProductionStart) {
+                  // 양산중 버튼은 날짜 입력 UI로 대체 (아래 별도 블록에서 렌더)
+                  return null
                 }
                 return (
                   <button
@@ -486,9 +518,36 @@ export default function SamplingSection({
               })}
             </div>
 
+            {/* 양산대기중 → 양산중 전환 UI */}
+            {isWaitingProduction && (
+              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-orange-800">양산 시작 등록</span>
+                  <span className="text-xs text-orange-500 bg-orange-100 px-2 py-0.5 rounded-full">디자인팀 검수완료</span>
+                </div>
+                <p className="text-xs text-gray-500">양산 완료 예정일을 입력하면 양산중으로 전환됩니다.</p>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-600 shrink-0">양산 완료 예정일</label>
+                  <input
+                    type="date"
+                    value={massProductionDate}
+                    onChange={(e) => setMassProductionDate(e.target.value)}
+                    className="border border-orange-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                  <button
+                    onClick={handleStartMassProduction}
+                    disabled={!massProductionDate || loading}
+                    className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-lg disabled:opacity-40 transition-colors"
+                  >
+                    양산 시작
+                  </button>
+                </div>
+              </div>
+            )}
+
             {isPM && phase !== '양산·운송' && (
               <p className="text-xs text-gray-400">
-                검수완료 클릭 시 양산 단계로, 검수반려 클릭 시 {phase === '1차샘플' ? '2차' : '2차'}샘플 제작 단계로 자동 전환됩니다
+                검수완료 클릭 시 양산대기 단계로, 검수반려 클릭 시 {phase === '1차샘플' ? '2차' : '2차'}샘플 제작 단계로 자동 전환됩니다
               </p>
             )}
 
@@ -591,9 +650,9 @@ export function SamplingPreviewForDesign({
     return step
   })()
 
-  // 디자인팀이 클릭 가능한 버튼: 검수완료·검수반려만
+  // 디자인팀이 클릭 가능한 버튼: 검수완료·검수반려만 (양산·운송 단계에선 모두 읽기 전용)
   const isDesignActionable = (btn: StepBtn) =>
-    btn.label === '검수완료' || (btn.isReject ?? false)
+    phase !== '양산·운송' && (btn.label === '검수완료' || (btn.isReject ?? false))
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true)
