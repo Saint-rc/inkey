@@ -677,9 +677,31 @@ export default function ProjectList({
         <div key={project.id} className="relative group">
           <Link
             href={`/projects/${project.id}`}
-            className="block bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-300 hover:shadow-sm transition-all"
+            className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all"
           >
-            <div className="flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              {/* 썸네일 */}
+              <div className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center">
+                {project.thumbnail_url ? (
+                  <img
+                    src={project.thumbnail_url}
+                    alt={project.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className={`w-full h-full flex items-center justify-center text-white text-xl font-bold ${
+                    project.status === 'INITIATED' ? 'bg-gradient-to-br from-yellow-400 to-orange-400' :
+                    project.status === 'PM_REVIEW' ? 'bg-gradient-to-br from-blue-400 to-blue-600' :
+                    project.status === 'DESIGN' ? 'bg-gradient-to-br from-purple-400 to-purple-600' :
+                    project.status === 'SAMPLING' ? 'bg-gradient-to-br from-orange-400 to-red-400' :
+                    'bg-gradient-to-br from-green-400 to-emerald-600'
+                  }`}>
+                    {(project.title || '?')[0].toUpperCase()}
+                  </div>
+                )}
+              </div>
+
+              {/* 텍스트 정보 */}
               <div className="flex-1 min-w-0 pr-4">
                 <div className="flex items-center gap-3 mb-1">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_COLOR[project.status]}`}>
@@ -729,7 +751,7 @@ export default function ProjectList({
                   </div>
                 )}
               </div>
-            </div>
+            </div>  {/* flex items-center gap-4 */}
           </Link>
 
           {/* 삭제 버튼 - 호버 시 표시 */}
