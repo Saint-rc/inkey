@@ -444,9 +444,30 @@ export default function SamplingSection({
             </div>
 
             {/* 상태 버튼 */}
+            {phase !== '양산·운송' && (
+              <p className="text-xs text-gray-400 -mb-1">
+                <span className="text-green-600 font-medium">검수완료</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 처리합니다
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               {buttons.map((btn) => {
                 const isActive = activeKey === btn.key
+                // 검수완료·검수반려는 디자인팀 전담 → 흐리게 표시
+                const isDesignOnly = phase !== '양산·운송' && (btn.label === '검수완료' || (btn.isReject ?? false))
+                if (isDesignOnly) {
+                  return (
+                    <div
+                      key={btn.key + btn.label}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium border-2 opacity-40 cursor-default ${
+                        isActive ? btn.color : 'bg-gray-50 text-gray-400 border-gray-200'
+                      }`}
+                      title="디자인팀에서 처리하는 항목입니다"
+                    >
+                      {btn.label}
+                      {isActive && ' ●'}
+                    </div>
+                  )
+                }
                 return (
                   <button
                     key={btn.key + btn.label}
@@ -570,13 +591,9 @@ export function SamplingPreviewForDesign({
     return step
   })()
 
-  // 디자인팀이 클릭 가능한 버튼: 검수중, 검수반려만
-  const DESIGN_ACTIONABLE_KEYS = [
-    'SAMPLE_ARRIVED',        // 1차 검수중
-    'SAMPLE_2ND_REVIEW',     // 2차 검수중
-    'SAMPLE_2ND_PRODUCTION', // 1차 검수반려 → 2차로
-    'SAMPLE_2ND_REJECTED',   // 2차 검수반려(재제작)
-  ]
+  // 디자인팀이 클릭 가능한 버튼: 검수완료·검수반려만
+  const isDesignActionable = (btn: StepBtn) =>
+    btn.label === '검수완료' || (btn.isReject ?? false)
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true)
@@ -690,15 +707,15 @@ export function SamplingPreviewForDesign({
               })}
             </div>
 
-            {/* 상태 버튼 (검수중·반려만 클릭 가능) */}
+            {/* 상태 버튼 (검수완료·검수반려만 클릭 가능) */}
             <div>
               <p className="text-xs text-gray-400 mb-2">
-                <span className="text-orange-500 font-medium">검수중</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 직접 변경 가능합니다
+                <span className="text-green-600 font-medium">검수완료</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 직접 변경 가능합니다
               </p>
               <div className="flex flex-wrap gap-2">
                 {buttons.map((btn) => {
                   const isActive = activeKey === btn.key
-                  const canAct = DESIGN_ACTIONABLE_KEYS.includes(btn.key) || (btn.isReject ?? false)
+                  const canAct = isDesignActionable(btn)
                   return canAct ? (
                     <button
                       key={btn.key + btn.label}
