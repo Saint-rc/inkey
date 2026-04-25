@@ -409,7 +409,6 @@ export default function TrackerClient({
                       </div>
                       <p className="text-sm text-gray-500 mt-0.5 font-medium">{project.item_name}</p>
                     </div>
-                    </div>
                     {project.design_step && (
                       <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full shrink-0">
                         {DESIGN_STEP_LABEL[project.design_step]}
