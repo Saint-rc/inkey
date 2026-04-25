@@ -30,6 +30,7 @@ export default function ProjectInfoSection({
   const [deleting, setDeleting] = useState(false)
   const [thumbnail, setThumbnail] = useState<string | null>(project.thumbnail_url ?? null)
   const [uploadingThumb, setUploadingThumb] = useState(false)
+  const [thumbError, setThumbError] = useState<string | null>(null)
 
   const isPlanner = true
 
@@ -37,16 +38,39 @@ export default function ProjectInfoSection({
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingThumb(true)
+    setThumbError(null)
+
+    // 파일을 base64로 읽어서 임시 미리보기
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+
     const ext = file.name.split('.').pop()
     const path = `${project.id}/thumb_${Date.now()}.${ext}`
     const { error: upErr } = await supabase.storage
       .from('project-thumbnails')
       .upload(path, file, { upsert: true })
-    if (!upErr) {
-      const { data: { publicUrl } } = supabase.storage
-        .from('project-thumbnails')
-        .getPublicUrl(path)
-      await supabase.from('projects').update({ thumbnail_url: publicUrl }).eq('id', project.id)
+
+    if (upErr) {
+      console.error('썸네일 업로드 오류:', upErr)
+      setThumbError(upErr.message)
+      setUploadingThumb(false)
+      e.target.value = ''
+      return
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('project-thumbnails')
+      .getPublicUrl(path)
+
+    const { error: dbErr } = await supabase
+      .from('projects')
+      .update({ thumbnail_url: publicUrl })
+      .eq('id', project.id)
+
+    if (dbErr) {
+      console.error('썸네일 DB 저장 오류:', dbErr)
+      setThumbError(dbErr.message)
+    } else {
       setThumbnail(publicUrl)
       router.refresh()
     }
@@ -78,6 +102,7 @@ export default function ProjectInfoSection({
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start gap-4">
           {/* 썸네일 */}
+          <div className="flex flex-col items-center gap-1">
           <label className="relative group cursor-pointer shrink-0">
             <input
               type="file"
@@ -112,6 +137,10 @@ export default function ProjectInfoSection({
               )}
             </div>
           </label>
+          {thumbError && (
+            <p className="text-[10px] text-red-500 max-w-[80px] text-center leading-tight">{thumbError.includes('not found') || thumbError.includes('Bucket') ? '버킷 없음' : '업로드 실패'}</p>
+          )}
+          </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{project.title}</h1>
             <p className="text-gray-500 text-sm mt-0.5">{project.item_name}</p>
