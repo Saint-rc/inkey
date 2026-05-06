@@ -7,8 +7,8 @@ export type StageName =
   | 'DESIGN_2ND'
   | 'SAMPLE_1ST'
   | 'SAMPLE_2ND'
+  | 'MOLD'
   | 'MASS_PRODUCTION'
-  | 'SHIPPING'
   | 'WAREHOUSING'
 
 // 기본 소요 기간 (일) — 각 단계의 완료까지 걸리는 일수
@@ -17,16 +17,16 @@ export const LEAD_TIMES: Record<StageName, number> = {
   DESIGN_2ND:       5,
   SAMPLE_1ST:       14,
   SAMPLE_2ND:       14,
+  MOLD:             30,
   MASS_PRODUCTION:  40,
-  SHIPPING:         7,
-  WAREHOUSING:      0,   // 운송완료 다음 영업일로 자동 계산
+  WAREHOUSING:      7,   // 양산 완료 후 입고까지 소요 기간
 }
 
 // 역산 순서 (입고 → 1차 디자인)
 const STAGE_ORDER: StageName[] = [
   'WAREHOUSING',
-  'SHIPPING',
   'MASS_PRODUCTION',
+  'MOLD',
   'SAMPLE_2ND',
   'SAMPLE_1ST',
   'DESIGN_2ND',
@@ -35,8 +35,8 @@ const STAGE_ORDER: StageName[] = [
 
 // 비율 압축 대상 단계 (WAREHOUSING 제외)
 const SCALABLE_STAGES: StageName[] = [
-  'SHIPPING',
   'MASS_PRODUCTION',
+  'MOLD',
   'SAMPLE_2ND',
   'SAMPLE_1ST',
   'DESIGN_2ND',
@@ -48,8 +48,8 @@ export const STAGE_LABELS: Record<StageName, string> = {
   DESIGN_2ND:       '2차 디자인',
   SAMPLE_1ST:       '1차 샘플',
   SAMPLE_2ND:       '2차 샘플',
+  MOLD:             '금형 제작',
   MASS_PRODUCTION:  '양산',
-  SHIPPING:         '운송',
   WAREHOUSING:      '입고',
 }
 
@@ -60,29 +60,6 @@ function toDateString(date: Date): string {
 function subtractDays(date: Date, days: number): Date {
   const result = new Date(date)
   result.setDate(result.getDate() - days)
-  return result
-}
-
-// 입고일 = 운송완료일 기준 다음 영업일 (주말이면 월요일)
-function nextBusinessDay(date: Date): Date {
-  const result = new Date(date)
-  result.setDate(result.getDate() + 1)
-  const day = result.getDay()
-  if (day === 6) result.setDate(result.getDate() + 2) // 토 → 월
-  if (day === 0) result.setDate(result.getDate() + 1) // 일 → 월
-  return result
-}
-
-// 역산: 입고일로부터 운송완료일 구하기 (nextBusinessDay 역연산)
-function prevBusinessDay(date: Date): Date {
-  const result = new Date(date)
-  const day = result.getDay()
-  if (day === 1) {
-    // 월요일이면 운송완료 = 금요일 (주말 건너뜀)
-    result.setDate(result.getDate() - 3)
-  } else {
-    result.setDate(result.getDate() - 1)
-  }
   return result
 }
 
@@ -147,12 +124,10 @@ export function calculateSchedule(
   // WAREHOUSING 완료 = 목표 입고일
   dates['WAREHOUSING'] = new Date(target)
 
-  // SHIPPING 완료 = 입고일의 이전 영업일 (입고는 운송완료 다음 영업일이므로)
-  dates['SHIPPING'] = prevBusinessDay(dates['WAREHOUSING'])
-
   // 나머지 단계: 이전 단계 완료일 - 소요기간
   const remainingStages: StageName[] = [
     'MASS_PRODUCTION',
+    'MOLD',
     'SAMPLE_2ND',
     'SAMPLE_1ST',
     'DESIGN_2ND',

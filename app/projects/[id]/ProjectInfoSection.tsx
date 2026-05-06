@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { fmtDateFull } from '@/lib/formatDate'
 
 const STATUS_LABEL: Record<string, string> = {
   INITIATED: '발의됨',
@@ -28,6 +29,7 @@ export default function ProjectInfoSection({
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [thumbnail, setThumbnail] = useState<string | null>(project.thumbnail_url ?? null)
   const [uploadingThumb, setUploadingThumb] = useState(false)
   const [thumbError, setThumbError] = useState<string | null>(null)
@@ -80,7 +82,14 @@ export default function ProjectInfoSection({
 
   const handleDelete = async () => {
     setDeleting(true)
-    await supabase.from('projects').delete().eq('id', project.id)
+    setDeleteError(null)
+    const { error } = await supabase.from('projects').delete().eq('id', project.id)
+    if (error) {
+      console.error('[프로젝트 삭제 오류]', error)
+      setDeleteError(error.message)
+      setDeleting(false)
+      return
+    }
     router.push('/dashboard')
   }
 
@@ -94,8 +103,7 @@ export default function ProjectInfoSection({
     router.refresh()
   }
 
-  const fmt = (d: string | null | undefined) =>
-    d ? new Date(d).toLocaleDateString('ko-KR') : null
+  const fmt = fmtDateFull
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-6">
@@ -152,21 +160,26 @@ export default function ProjectInfoSection({
           </span>
           {isPlanner && (
             confirmDelete ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-500">삭제할까요?</span>
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="text-xs text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg font-medium disabled:opacity-40 transition-colors"
-                >
-                  {deleting ? '삭제중...' : '확인'}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1"
-                >
-                  취소
-                </button>
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500">삭제할까요?</span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="text-xs text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg font-medium disabled:opacity-40 transition-colors"
+                  >
+                    {deleting ? '삭제중...' : '확인'}
+                  </button>
+                  <button
+                    onClick={() => { setConfirmDelete(false); setDeleteError(null) }}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1"
+                  >
+                    취소
+                  </button>
+                </div>
+                {deleteError && (
+                  <p className="text-[10px] text-red-500 max-w-[200px] text-right leading-tight">{deleteError}</p>
+                )}
               </div>
             ) : (
               <button
@@ -187,7 +200,7 @@ export default function ProjectInfoSection({
           ['예상 수량', project.quantity ? `${project.quantity.toLocaleString()}개` : null],
           ['프로젝트 시작일', fmt(project.start_date)],
           ['목표 입고일', fmt(project.target_delivery_date)],
-          ['PM', (project.planner as any)?.name],
+          ['기획자', (project.planner as any)?.name],
         ].map(([label, value]) =>
           value ? (
             <div key={label as string} className="flex gap-2">
@@ -243,6 +256,20 @@ export default function ProjectInfoSection({
           )}
         </div>
       </div>
+
+      {/* SKU 옵션 */}
+      {Array.isArray(project.sku_options) && project.sku_options.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <p className="text-xs text-gray-400 mb-2 font-medium">SKU 옵션</p>
+          <div className="flex flex-wrap gap-1.5">
+            {project.sku_options.map((sku: string, i: number) => (
+              <span key={i} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full">
+                {sku}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {project.memo && (
         <div className="mt-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-600">

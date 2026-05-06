@@ -4,14 +4,15 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { STAGE_LABELS, LEAD_TIMES, type StageName } from '@/lib/scheduleCalculator'
+import { fmtDateFull } from '@/lib/formatDate'
 
 const STAGE_ORDER: StageName[] = [
   'DESIGN_1ST',
   'DESIGN_2ND',
   'SAMPLE_1ST',
   'SAMPLE_2ND',
+  'MOLD',
   'MASS_PRODUCTION',
-  'SHIPPING',
   'WAREHOUSING',
 ]
 
@@ -37,17 +38,20 @@ export default function PMReviewSection({
   schedules,
   profile,
   pms,
+  files,
 }: {
   project: any
   schedules: any[]
   profile: any
   pms: any[]
+  files?: any[]
 }) {
   const router = useRouter()
   const supabase = createClient()
   const [loading, setLoading] = useState(false)
   const [quotes, setQuotes] = useState<QuoteRow[]>(parseQuotes(project.estimated_cost))
   const [pmNotes, setPmNotes] = useState(project.pm_notes ?? '')
+  const [hiddenStages, setHiddenStages] = useState<string[]>([])
 
   const [stageDates, setStageDates] = useState<Record<string, string>>(
     Object.fromEntries(
@@ -58,8 +62,19 @@ export default function PMReviewSection({
     )
   )
 
-  const isPM = true
-  const isEditable = project.status === 'INITIATED' || project.status === 'PM_REVIEW'
+  const isPMLeader = profile?.role === 'PM_LEADER'
+  const isPM = profile?.role === 'PM' || isPMLeader
+  const isEditable = (project.status === 'INITIATED' || project.status === 'PM_REVIEW') && !!project.pm_id
+  const [assigningPM, setAssigningPM] = useState('')
+  const [assignLoading, setAssignLoading] = useState(false)
+
+  const handleAssignPM = async () => {
+    if (!assigningPM || assignLoading) return
+    setAssignLoading(true)
+    await supabase.from('projects').update({ pm_id: assigningPM }).eq('id', project.id)
+    router.refresh()
+    setAssignLoading(false)
+  }
 
   const handleDateChange = (stage: string, value: string) => {
     setStageDates((prev) => ({ ...prev, [stage]: value }))
@@ -78,6 +93,10 @@ export default function PMReviewSection({
     setQuotes((prev) => prev.filter((_, i) => i !== index))
   }
 
+  const hideStage = (stage: string) => {
+    setHiddenStages((prev) => [...prev, stage])
+  }
+
   const handleSubmit = async () => {
     setLoading(true)
 
@@ -90,6 +109,7 @@ export default function PMReviewSection({
 
     for (const [stage, date] of Object.entries(stageDates)) {
       if (!date) continue
+      if (hiddenStages.includes(stage)) continue
       const existing = schedules.find((s) => s.stage_name === stage)
       if (existing) {
         await supabase.from('project_schedules').update({ pm_adjusted_date: date }).eq('id', existing.id)
@@ -116,17 +136,55 @@ export default function PMReviewSection({
   // 저장된 견적 읽기용 파싱
   const savedQuotes = parseQuotes(project.estimated_cost)
 
+  // 레퍼런스 이미지 (project_files에서 REFERENCE 타입)
+  const refImages = (files ?? []).filter((f: any) => f.file_type === 'REFERENCE')
+
+  // 뷰 모드에서 표시할 단계: 실제 스케줄 데이터가 있는 것만
+  const visibleStagesView = STAGE_ORDER.filter((stage) => getScheduleStatus(stage) !== null)
+  // 편집 모드에서 표시할 단계: 숨김 처리 안 된 것
+  const visibleStagesEdit = STAGE_ORDER.filter((stage) => !hiddenStages.includes(stage))
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-lg font-bold text-gray-900">상품기획 검토 및 일정</h2>
         {project.pm && (
-          <span className="text-sm text-gray-500">상품기획: {(project.pm as any)?.name}</span>
+          <span className="text-sm text-gray-500">담당: {(project.pm as any)?.name}</span>
         )}
       </div>
 
-      {!isEditable && !schedules.length && (
-        <p className="text-sm text-gray-400 py-4 text-center">PM이 일정을 검토하면 표시됩니다</p>
+      {/* 상품기획 담당자 배정 (PM_LEADER만) */}
+      {!project.pm_id && isPMLeader && pms.length > 0 && (
+        <div className="mb-5 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+          <p className="text-sm font-medium text-yellow-800 mb-3">상품기획 담당자를 배정해주세요</p>
+          <div className="flex gap-3">
+            <select
+              value={assigningPM}
+              onChange={(e) => setAssigningPM(e.target.value)}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">담당자 선택</option>
+              {pms.map((pm: any) => (
+                <option key={pm.id} value={pm.id}>{pm.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={handleAssignPM}
+              disabled={!assigningPM || assignLoading}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+            >
+              {assignLoading ? '배정중...' : '배정'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!project.pm_id && !isPMLeader && (
+        <p className="text-sm text-gray-400 py-4 text-center">상품기획 리더가 담당자를 배정하면 표시됩니다</p>
+      )}
+
+      {!isEditable && project.pm_id && !schedules.length && (
+        <p className="text-sm text-gray-400 py-4 text-center">담당자가 일정을 검토하면 표시됩니다</p>
       )}
 
       {/* 일정 타이트 경고 */}
@@ -136,6 +194,24 @@ export default function PMReviewSection({
           <div>
             <p className="text-sm font-semibold text-red-700">일정이 매우 빠듯하게 설정되었습니다</p>
             <p className="text-xs text-red-500 mt-0.5">PM이 설정한 목표 입고일 기준으로 일부 단계 일정이 시작일보다 앞섭니다. 상품기획 조정일을 수정해주세요.</p>
+          </div>
+        </div>
+      )}
+
+      {/* 레퍼런스 이미지 */}
+      {refImages.length > 0 && (
+        <div className="mb-5 p-4 bg-gray-50 rounded-xl border border-gray-100">
+          <p className="text-xs text-gray-400 font-medium mb-2">레퍼런스 이미지</p>
+          <div className="flex gap-2 flex-wrap">
+            {refImages.map((file: any) => (
+              <a key={file.id} href={file.file_url} target="_blank" rel="noreferrer">
+                <img
+                  src={file.file_url}
+                  alt={file.file_name}
+                  className="w-20 h-20 object-cover rounded-lg border border-gray-200 hover:opacity-80 transition-opacity"
+                />
+              </a>
+            ))}
           </div>
         </div>
       )}
@@ -153,7 +229,6 @@ export default function PMReviewSection({
                   const total = q.unit_price ? Math.round(q.quantity * Number(q.unit_price)) : null
                   return (
                     <div key={i} className="flex items-center gap-2">
-                      {/* 수량 선택 */}
                       <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
                         <select
                           value={q.quantity}
@@ -166,7 +241,6 @@ export default function PMReviewSection({
                             </option>
                           ))}
                         </select>
-                        {/* 개당 단가 */}
                         <div className="flex items-center px-3 gap-1">
                           <span className="text-xs text-gray-400">개당</span>
                           <input
@@ -180,18 +254,14 @@ export default function PMReviewSection({
                         </div>
                       </div>
 
-                      {/* 합계 */}
                       <div className="flex-1 text-sm font-semibold text-gray-700 text-right pr-2">
                         {total !== null ? (
-                          <span className="text-blue-600">
-                            = {total.toLocaleString()}원
-                          </span>
+                          <span className="text-blue-600">= {total.toLocaleString()}원</span>
                         ) : (
                           <span className="text-gray-300">= -</span>
                         )}
                       </div>
 
-                      {/* 삭제 */}
                       <button
                         onClick={() => removeQuoteRow(i)}
                         disabled={quotes.length === 1}
@@ -203,7 +273,6 @@ export default function PMReviewSection({
                   )
                 })}
 
-                {/* + 추가 버튼 */}
                 <button
                   onClick={addQuoteRow}
                   className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium mt-1"
@@ -213,7 +282,6 @@ export default function PMReviewSection({
                 </button>
               </div>
             ) : (
-              /* 읽기 전용 */
               <div className="space-y-2">
                 {savedQuotes.map((q, i) => {
                   const total = q.unit_price ? Math.round(q.quantity * Number(q.unit_price)) : null
@@ -240,7 +308,7 @@ export default function PMReviewSection({
             <div className="flex items-center justify-between mb-3">
               <label className="block text-sm font-medium text-gray-700">세부 일정</label>
               {isEditable && (
-                <span className="text-xs text-gray-400">자동 역산된 날짜 · 필요 시 수정 가능</span>
+                <span className="text-xs text-gray-400">자동 역산된 날짜 · ✕ 버튼으로 불필요한 단계 제거 가능</span>
               )}
             </div>
 
@@ -254,48 +322,46 @@ export default function PMReviewSection({
                     <th className="text-left px-4 py-2.5 font-medium">
                       {isEditable ? '상품기획 조정일' : '확정일'}
                     </th>
+                    {isEditable && <th className="px-2 py-2.5 w-8" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {STAGE_ORDER.map((stage) => {
+                  {(isEditable ? visibleStagesEdit : visibleStagesView).map((stage) => {
                     const status = getScheduleStatus(stage)
                     const isDelayed = status?.isDelayed
+
+                    // 소요기간 계산
+                    const stageIdx = STAGE_ORDER.indexOf(stage)
+                    const prevStage = stageIdx > 0 ? STAGE_ORDER[stageIdx - 1] : null
+                    let soyo: React.ReactNode = LEAD_TIMES[stage] > 0 ? `${LEAD_TIMES[stage]}일` : '-'
+                    if (prevStage && isEditable) {
+                      const curSc = schedules.find(s => s.stage_name === stage)
+                      const prevSc = schedules.find(s => s.stage_name === prevStage)
+                      const curDate = curSc?.pm_adjusted_date ?? curSc?.auto_estimated_date
+                      const prevDate = prevSc?.pm_adjusted_date ?? prevSc?.auto_estimated_date
+                      if (curDate && prevDate) {
+                        const diff = Math.abs(Math.round((new Date(prevDate).getTime() - new Date(curDate).getTime()) / (1000 * 60 * 60 * 24)))
+                        const standard = LEAD_TIMES[stage]
+                        soyo = (
+                          <span>
+                            {diff}일
+                            {diff !== standard && (
+                              <span className="ml-1 text-orange-400 text-xs">(기본 {standard}일)</span>
+                            )}
+                          </span>
+                        )
+                      }
+                    }
+
                     return (
                       <tr key={stage} className={isDelayed ? 'bg-red-50' : ''}>
                         <td className="px-4 py-2.5 font-medium text-gray-700">
                           {STAGE_LABELS[stage]}
                           {isDelayed && <span className="ml-1 text-xs text-red-500">⚠️</span>}
                         </td>
-                        <td className="px-4 py-2.5 text-gray-400">
-                          {stage === 'WAREHOUSING' ? (
-                            <span className="text-xs text-gray-400">운송완료 다음 영업일</span>
-                          ) : (() => {
-                            // 현재 단계와 다음 단계의 완료일 차이로 소요기간 계산
-                            // STAGE_ORDER: WAREHOUSING→SHIPPING→MASS_PRODUCTION→...→DESIGN_1ST
-                            // 각 단계 소요기간 = 현재 단계 완료일 - 이전 단계(앞선 단계) 완료일
-                            const stageIdx = STAGE_ORDER.indexOf(stage)
-                            const prevStage = stageIdx > 0 ? STAGE_ORDER[stageIdx - 1] : null
-                            const curSc = schedules.find(s => s.stage_name === stage)
-                            const prevSc = prevStage ? schedules.find(s => s.stage_name === prevStage) : null
-                            const curDate = curSc?.pm_adjusted_date ?? curSc?.auto_estimated_date
-                            const prevDate = prevSc?.pm_adjusted_date ?? prevSc?.auto_estimated_date
-                            if (curDate && prevDate) {
-                              const diff = Math.round((new Date(prevDate).getTime() - new Date(curDate).getTime()) / (1000 * 60 * 60 * 24))
-                              const standard = LEAD_TIMES[stage]
-                              return (
-                                <span>
-                                  {diff}일
-                                  {diff !== standard && (
-                                    <span className="ml-1 text-orange-400 text-xs">(기본 {standard}일)</span>
-                                  )}
-                                </span>
-                              )
-                            }
-                            return LEAD_TIMES[stage] > 0 ? LEAD_TIMES[stage] + '일' : '-'
-                          })()}
-                        </td>
+                        <td className="px-4 py-2.5 text-gray-400 text-xs">{soyo}</td>
                         <td className="px-4 py-2.5 text-gray-500">
-                          {status?.auto ? new Date(status.auto).toLocaleDateString('ko-KR') : '-'}
+                          {status?.auto ? fmtDateFull(status.auto) : '-'}
                         </td>
                         <td className="px-4 py-2.5">
                           {isEditable ? (
@@ -310,24 +376,50 @@ export default function PMReviewSection({
                           ) : (
                             <span className={`font-medium ${isDelayed ? 'text-red-600' : 'text-gray-800'}`}>
                               {status?.adjusted
-                                ? new Date(status.adjusted).toLocaleDateString('ko-KR')
+                                ? fmtDateFull(status.adjusted)
                                 : status?.auto
-                                ? new Date(status.auto).toLocaleDateString('ko-KR')
+                                ? fmtDateFull(status.auto)
                                 : '-'}
                             </span>
                           )}
                         </td>
+                        {isEditable && (
+                          <td className="px-2 py-2.5">
+                            <button
+                              onClick={() => hideStage(stage)}
+                              className="w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:bg-red-50 hover:text-red-400 transition-colors text-xs"
+                              title={`${STAGE_LABELS[stage]} 단계 제거`}
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
+
+            {/* 제거된 단계 복구 */}
+            {isEditable && hiddenStages.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {hiddenStages.map((stage) => (
+                  <button
+                    key={stage}
+                    onClick={() => setHiddenStages((prev) => prev.filter((s) => s !== stage))}
+                    className="text-xs text-gray-400 hover:text-blue-500 border border-gray-200 hover:border-blue-200 px-2 py-0.5 rounded-full transition-colors"
+                  >
+                    + {STAGE_LABELS[stage as StageName]} 복구
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* ── PM 메모 ── */}
+          {/* ── 상품기획담당자 메모 ── */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">PM 메모</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">상품기획담당자 메모</label>
             {isEditable ? (
               <textarea
                 value={pmNotes}

@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { fmtDateFull } from '@/lib/formatDate'
 
 // ── 타입 ──────────────────────────────────────────────────
-type DesignPhase = '1차디자인' | '2차디자인' | '작지서'
 type SubStatus = '디자인중' | '검수중' | '검수반려' | '완료' | '작지서작성중' | '작지서완료'
 
 type HistoryEntry = {
@@ -18,11 +18,16 @@ type HistoryEntry = {
 }
 
 // ── 헬퍼 ──────────────────────────────────────────────────
-const getPhase = (step: string | null, rejected: boolean): DesignPhase => {
+// round 1 → DESIGN_1ST_*, round 2+ → DESIGN_2ND_* (재사용)
+const getDBSteps = (round: number) => {
+  if (round <= 1) return { workStep: 'DESIGN_1ST_WORK', reviewStep: 'DESIGN_1ST_REVIEW' }
+  return { workStep: 'DESIGN_2ND_WORK', reviewStep: 'DESIGN_2ND_REVIEW' }
+}
+
+const getPhase = (step: string | null, round: number): string => {
   if (!step) return '1차디자인'
   if (['WORK_ORDER_READY', 'WORK_ORDER_SENT'].includes(step)) return '작지서'
-  if (['DESIGN_2ND_WORK', 'DESIGN_2ND_REVIEW'].includes(step) || rejected) return '2차디자인'
-  return '1차디자인'
+  return `${round}차디자인`
 }
 
 const getSubStatus = (step: string | null): SubStatus => {
@@ -38,13 +43,13 @@ const getSubStatus = (step: string | null): SubStatus => {
 }
 
 const STEP_LABEL: Record<string, string> = {
-  DESIGN_1ST_WORK: '1차 디자인중',
-  DESIGN_1ST_REVIEW: '1차 검수중',
-  DESIGN_2ND_WORK: '2차 디자인중',
-  DESIGN_2ND_REVIEW: '2차 검수중',
-  WORK_ORDER_READY: '작지서 작성중',
-  WORK_ORDER_SENT: '작지서 완료',
-  REJECTED: '검수반려',
+  DESIGN_1ST_WORK:   '디자인중 (1차)',
+  DESIGN_1ST_REVIEW: '검수중 (1차)',
+  DESIGN_2ND_WORK:   '디자인중',
+  DESIGN_2ND_REVIEW: '검수중',
+  WORK_ORDER_READY:  '작지서 작성중',
+  WORK_ORDER_SENT:   '작지서 완료',
+  REJECTED:          '검수반려',
 }
 
 const DESIGN_BUTTONS: { key: SubStatus; label: string; color: string }[] = [
@@ -90,21 +95,13 @@ function RejectModal({
         className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-red-50">
           <div className="flex items-center gap-2">
             <span className="text-red-500 text-base">⚠️</span>
             <h3 className="text-sm font-bold text-red-700">검수 반려</h3>
           </div>
-          <button
-            onClick={onCancel}
-            className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 text-xs"
-          >
-            ✕
-          </button>
+          <button onClick={onCancel} className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 text-xs">✕</button>
         </div>
-
-        {/* 바디 */}
         <div className="px-5 py-4 space-y-3">
           <p className="text-xs text-gray-500">반려 사유를 입력해주세요. (선택사항)</p>
           <textarea
@@ -116,8 +113,6 @@ function RejectModal({
             autoFocus
           />
         </div>
-
-        {/* 푸터 */}
         <div className="px-5 pb-4 flex gap-2">
           <button
             onClick={handleConfirm}
@@ -126,12 +121,7 @@ function RejectModal({
           >
             {loading ? '처리중...' : '반려 확정'}
           </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
-          >
-            취소
-          </button>
+          <button onClick={onCancel} className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors">취소</button>
         </div>
       </div>
     </div>
@@ -146,7 +136,6 @@ function HistoryModal({
   history: HistoryEntry[]
   onClose: () => void
 }) {
-  // 반려 차수 계산
   const sorted = [...history].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   let rejectCount = 0
   const rejectLabels = new Map<number, number>()
@@ -167,24 +156,14 @@ function HistoryModal({
         className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <span className="text-base">📋</span>
             <h3 className="text-sm font-bold text-gray-800">검수 히스토리</h3>
-            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-              {history.length}건
-            </span>
+            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{history.length}건</span>
           </div>
-          <button
-            onClick={onClose}
-            className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 text-xs"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 text-xs">✕</button>
         </div>
-
-        {/* 바디 */}
         <div className="px-5 py-4 max-h-96 overflow-y-auto">
           {displayList.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-6">기록이 없습니다</p>
@@ -195,48 +174,30 @@ function HistoryModal({
                 const rejectNum = rejectLabels.get(entry.id)
                 return (
                   <div key={entry.id} className="flex gap-3">
-                    {/* 타임라인 선 */}
                     <div className="flex flex-col items-center">
-                      <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${
-                        isReject ? 'bg-red-400' : 'bg-blue-400'
-                      }`} />
-                      {i < displayList.length - 1 && (
-                        <div className="w-px flex-1 bg-gray-100 mt-1" />
-                      )}
+                      <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${isReject ? 'bg-red-400' : 'bg-blue-400'}`} />
+                      {i < displayList.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" />}
                     </div>
-
-                    {/* 내용 */}
                     <div className="pb-3 flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {entry.from_step && (
                           <>
-                            <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">
-                              {STEP_LABEL[entry.from_step] ?? entry.from_step}
-                            </span>
+                            <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{STEP_LABEL[entry.from_step] ?? entry.from_step}</span>
                             <span className="text-gray-300 text-xs">→</span>
                           </>
                         )}
-                        <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${
-                          isReject
-                            ? 'bg-red-100 text-red-600'
-                            : 'bg-blue-50 text-blue-700'
-                        }`}>
+                        <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${isReject ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-700'}`}>
                           {STEP_LABEL[entry.to_step] ?? entry.to_step}
                         </span>
                         {isReject && rejectNum && (
-                          <span className="text-xs bg-red-50 text-red-500 ring-1 ring-red-200 rounded-full px-2 py-0.5 font-medium">
-                            {rejectNum}차 반려
-                          </span>
+                          <span className="text-xs bg-red-50 text-red-500 ring-1 ring-red-200 rounded-full px-2 py-0.5 font-medium">{rejectNum}차 반려</span>
                         )}
                       </div>
-
-                      {/* 반려 사유 */}
                       {entry.note && (
                         <div className="mt-1.5 text-xs text-red-600 bg-red-50 rounded-lg px-2.5 py-1.5 border border-red-100">
                           <span className="font-medium">사유: </span>{entry.note}
                         </div>
                       )}
-
                       <p className="mt-1 text-xs text-gray-400">{fmt(entry.created_at)}</p>
                     </div>
                   </div>
@@ -256,11 +217,13 @@ export default function DesignSection({
   files,
   profile,
   designers,
+  designRejectCount,
 }: {
   project: any
   files: any[]
   profile: any
   designers: any[]
+  designRejectCount: number
 }) {
   const router = useRouter()
   const supabase = createClient()
@@ -272,9 +235,17 @@ export default function DesignSection({
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
-  const phase = getPhase(project.design_step, project.design_rejected)
+  // 차수: 서버에서 계산된 반려 횟수 기반 (router.refresh() 시 항상 최신)
+  const round = designRejectCount + 1
+
+  const phase = getPhase(project.design_step, round)
   const subStatus = getSubStatus(project.design_step)
   const buttons = phase === '작지서' ? WORK_ORDER_BUTTONS : DESIGN_BUTTONS
+
+  // 탭 목록: 1차 ~ 현재차수 + 작지서
+  const allTabs: string[] = []
+  for (let r = 1; r <= round; r++) allTabs.push(`${r}차디자인`)
+  allTabs.push('작지서')
 
   // 히스토리 로드
   const loadHistory = useCallback(async () => {
@@ -313,7 +284,6 @@ export default function DesignSection({
     setLoading(false)
   }
 
-  // 검수반려 버튼 클릭 → 모달 열기
   const handleStatusClick = async (status: SubStatus) => {
     if (loading) return
     if (status === '검수반려') {
@@ -326,27 +296,28 @@ export default function DesignSection({
   const applyStatus = async (status: SubStatus, rejectNote?: string) => {
     setLoading(true)
     const prevStep = project.design_step
+    const { workStep, reviewStep } = getDBSteps(round)
 
-    if (phase === '1차디자인' || phase === '2차디자인') {
-      const isFirst = phase === '1차디자인'
+    if (phase !== '작지서') {
       if (status === '디자인중') {
-        await supabase.from('projects').update({
-          design_step: isFirst ? 'DESIGN_1ST_WORK' : 'DESIGN_2ND_WORK',
-        }).eq('id', project.id)
-        await saveHistory(prevStep, isFirst ? 'DESIGN_1ST_WORK' : 'DESIGN_2ND_WORK')
+        await supabase.from('projects').update({ design_step: workStep }).eq('id', project.id)
+        await saveHistory(prevStep, workStep)
       } else if (status === '검수중') {
         await supabase.from('projects').update({
-          design_step: isFirst ? 'DESIGN_1ST_REVIEW' : 'DESIGN_2ND_REVIEW',
+          design_step: reviewStep,
           design_expected_date: expectedDate || null,
         }).eq('id', project.id)
-        await saveHistory(prevStep, isFirst ? 'DESIGN_1ST_REVIEW' : 'DESIGN_2ND_REVIEW')
+        await saveHistory(prevStep, reviewStep)
       } else if (status === '검수반려') {
+        const nextRound = round + 1
+        const { workStep: nextWork } = getDBSteps(nextRound)
+        // 히스토리 먼저 저장 (REJECTED 카운트 증가)
+        await saveHistory(prevStep, 'REJECTED', rejectNote)
         await supabase.from('projects').update({
-          design_step: 'DESIGN_2ND_WORK',
+          design_step: nextWork,
           design_rejected: true,
           design_expected_date: null,
         }).eq('id', project.id)
-        await saveHistory(prevStep, 'REJECTED', rejectNote)
       } else if (status === '완료') {
         await supabase.from('projects').update({
           design_step: 'WORK_ORDER_READY',
@@ -355,7 +326,7 @@ export default function DesignSection({
         }).eq('id', project.id)
         await saveHistory(prevStep, 'WORK_ORDER_READY')
       }
-    } else if (phase === '작지서') {
+    } else {
       if (status === '작지서작성중') {
         await supabase.from('projects').update({ design_step: 'WORK_ORDER_READY' }).eq('id', project.id)
         await saveHistory(prevStep, 'WORK_ORDER_READY')
@@ -364,7 +335,8 @@ export default function DesignSection({
           design_step: 'WORK_ORDER_SENT',
           design_expected_date: expectedDate || null,
           status: 'SAMPLING',
-          sample_step: 'SAMPLE_REQUESTED',
+          sample_step: 'SAMPLE_WAIT',
+          quote_step: 'QUOTE_WAIT',
         }).eq('id', project.id)
         await saveHistory(prevStep, 'WORK_ORDER_SENT')
       }
@@ -390,6 +362,40 @@ export default function DesignSection({
     router.refresh()
   }
 
+  // 이전 차수로 되돌리기
+  const handleRevertToPrev = async () => {
+    setLoading(true)
+    if (phase === '작지서') {
+      const { workStep } = getDBSteps(round)
+      await supabase.from('projects').update({
+        design_step: workStep,
+        design_expected_date: null,
+      }).eq('id', project.id)
+      await saveHistory(project.design_step, workStep)
+    } else if (round > 1) {
+      const prevRound = round - 1
+      const { workStep } = getDBSteps(prevRound)
+      // 마지막 REJECTED 히스토리 삭제 (되돌리기이므로)
+      const { data: lastReject } = await supabase
+        .from('design_review_history')
+        .select('id')
+        .eq('project_id', project.id)
+        .eq('to_step', 'REJECTED')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (lastReject && lastReject.length > 0) {
+        await supabase.from('design_review_history').delete().eq('id', lastReject[0].id)
+      }
+      await supabase.from('projects').update({
+        design_step: workStep,
+        design_rejected: prevRound > 1,
+        design_expected_date: null,
+      }).eq('id', project.id)
+    }
+    router.refresh()
+    setLoading(false)
+  }
+
   return (
     <>
       <div className="bg-white rounded-2xl border border-gray-200 p-6">
@@ -397,7 +403,6 @@ export default function DesignSection({
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-gray-900">디자인 진행</h2>
           <div className="flex items-center gap-3">
-            {/* 히스토리 버튼 */}
             <button
               onClick={handleShowHistory}
               disabled={historyLoading}
@@ -444,16 +449,20 @@ export default function DesignSection({
         {project.design_step && (
           <div className="space-y-5">
 
-            {/* 단계 탭 */}
-            <div className="flex gap-2">
-              {(['1차디자인', '2차디자인', '작지서'] as DesignPhase[]).map((p) => {
+            {/* 단계 탭 (동적) */}
+            <div className="flex flex-wrap gap-2">
+              {allTabs.map((tab) => {
+                const tabRoundMatch = tab.match(/^(\d+)차디자인$/)
+                const tabRound = tabRoundMatch ? parseInt(tabRoundMatch[1]) : null
                 const isDone =
-                  (p === '1차디자인' && ['2차디자인', '작지서'].includes(phase)) ||
-                  (p === '2차디자인' && phase === '작지서')
-                const isActive = p === phase
+                  tab === '작지서'
+                    ? false
+                    : (phase === '작지서') || (tabRound !== null && tabRound < round)
+                const isActive = tab === phase
+
                 return (
                   <div
-                    key={p}
+                    key={tab}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
                       isDone
                         ? 'bg-green-50 text-green-700 border-green-200'
@@ -467,10 +476,7 @@ export default function DesignSection({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                       </svg>
                     )}
-                    {p}
-                    {p === '2차디자인' && project.design_rejected && isActive && (
-                      <span className="ml-1 opacity-75">(반려)</span>
-                    )}
+                    {tab}
                   </div>
                 )
               })}
@@ -479,50 +485,17 @@ export default function DesignSection({
             {/* 단계 이름 + 되돌리기 */}
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-gray-700">
-                {phase === '1차디자인' && '1차 디자인 작업'}
-                {phase === '2차디자인' && '2차 디자인 작업'}
-                {phase === '작지서' && '작지서 제작'}
+                {phase === '작지서' ? '작지서 제작' : `${phase} 작업`}
               </div>
-              <div className="flex gap-3">
-                {phase === '2차디자인' && (
-                  <button
-                    onClick={async () => {
-                      setLoading(true)
-                      await supabase.from('projects').update({
-                        design_step: 'DESIGN_1ST_WORK',
-                        design_rejected: false,
-                        design_expected_date: null,
-                      }).eq('id', project.id)
-                      await saveHistory(project.design_step, 'DESIGN_1ST_WORK')
-                      router.refresh()
-                      setLoading(false)
-                    }}
-                    disabled={loading}
-                    className="text-xs text-gray-400 hover:text-blue-600 underline underline-offset-2"
-                  >
-                    ← 1차로 되돌리기
-                  </button>
-                )}
-                {phase === '작지서' && (
-                  <button
-                    onClick={async () => {
-                      setLoading(true)
-                      const step = project.design_rejected ? 'DESIGN_2ND_WORK' : 'DESIGN_1ST_WORK'
-                      await supabase.from('projects').update({
-                        design_step: step,
-                        design_expected_date: null,
-                      }).eq('id', project.id)
-                      await saveHistory(project.design_step, step)
-                      router.refresh()
-                      setLoading(false)
-                    }}
-                    disabled={loading}
-                    className="text-xs text-gray-400 hover:text-blue-600 underline underline-offset-2"
-                  >
-                    ← 디자인으로 되돌리기
-                  </button>
-                )}
-              </div>
+              {phase !== '1차디자인' && (
+                <button
+                  onClick={handleRevertToPrev}
+                  disabled={loading}
+                  className="text-xs text-gray-400 hover:text-blue-600 underline underline-offset-2"
+                >
+                  {phase === '작지서' ? '← 디자인으로 되돌리기' : `← ${round - 1}차로 되돌리기`}
+                </button>
+              )}
             </div>
 
             {/* 상태 버튼 */}
@@ -567,7 +540,7 @@ export default function DesignSection({
 
             {project.design_expected_date && (
               <p className="text-xs text-gray-400">
-                예상 완료일: {new Date(project.design_expected_date).toLocaleDateString('ko-KR')}
+                예상 완료일: {fmtDateFull(project.design_expected_date)}
               </p>
             )}
 
@@ -580,7 +553,6 @@ export default function DesignSection({
         )}
       </div>
 
-      {/* 반려 사유 모달 */}
       {showRejectModal && (
         <RejectModal
           onConfirm={handleRejectConfirm}
@@ -588,7 +560,6 @@ export default function DesignSection({
         />
       )}
 
-      {/* 히스토리 모달 */}
       {showHistoryModal && (
         <HistoryModal
           history={history}

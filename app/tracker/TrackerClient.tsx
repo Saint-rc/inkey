@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { fmtDateFull, fmtDateShort } from '@/lib/formatDate'
 
 const STATUS_LABEL: Record<string, string> = {
   INITIATED: '발의됨',
@@ -129,7 +130,7 @@ function MiniTimeline({
           ? SAMPLE_STEP_LABEL[sampleStep]
           : null
         const subDate = isActive && status === 'DESIGN' && designExpectedDate
-          ? new Date(designExpectedDate).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
+          ? fmtDateShort(designExpectedDate)
           : null
 
         return (
@@ -191,8 +192,7 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_ORDER = ['DESIGN_1ST', 'DESIGN_2ND', 'SAMPLE_1ST', 'SAMPLE_2ND', 'MASS_PRODUCTION', 'SHIPPING', 'WAREHOUSING']
 
 function formatDate(d: string | null | undefined) {
-  if (!d) return '-'
-  return new Date(d).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
+  return fmtDateShort(d) ?? '-'
 }
 
 function isOverdue(dateStr: string | null | undefined) {
@@ -503,7 +503,7 @@ export default function TrackerClient({
                       <span className="text-purple-400">✏️</span>
                       <span className="text-gray-500">디자인 예상완료일</span>
                       <span className="font-semibold text-purple-700">
-                        {new Date(project.design_expected_date).toLocaleDateString('ko-KR')}
+                        {fmtDateFull(project.design_expected_date)}
                       </span>
                     </div>
                   )}
@@ -525,7 +525,7 @@ export default function TrackerClient({
                               {f.label}
                             </span>
                             <span className="font-semibold text-orange-700">
-                              {new Date(f.date!).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
+                              {fmtDateShort(f.date)}
                             </span>
                           </div>
                         ))}

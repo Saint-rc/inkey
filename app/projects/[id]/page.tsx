@@ -50,10 +50,21 @@ export default async function ProjectDetailPage({
   const { data: designers } = await supabase
     .from('profiles')
     .select('id, name, role')
+    .in('role', ['DESIGNER', 'DESIGN_LEADER'])
 
   const { data: pms } = await supabase
     .from('profiles')
     .select('id, name')
+    .in('role', ['PM', 'PM_LEADER'])
+
+  // 디자인 반려 횟수 (서버에서 계산 → router.refresh() 시 항상 최신값)
+  const { data: rejectHistory } = await supabase
+    .from('design_review_history')
+    .select('id')
+    .eq('project_id', id)
+    .eq('to_step', 'REJECTED')
+
+  const designRejectCount = rejectHistory?.length ?? 0
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -67,6 +78,7 @@ export default async function ProjectDetailPage({
         designers={designers ?? []}
         pms={pms ?? []}
         profile={profile}
+        designRejectCount={designRejectCount}
       />
     </div>
   )

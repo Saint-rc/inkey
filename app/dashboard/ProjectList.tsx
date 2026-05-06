@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { fmtDateFull, fmtDateShort } from '@/lib/formatDate'
 
 const MONTH_NAMES = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 
@@ -117,8 +118,7 @@ function IPContractModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: () =
     load()
   }
 
-  const fmtDate = (d: string | null) =>
-    d ? new Date(d).toLocaleDateString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric' }) : '-'
+  const fmtDate = (d: string | null) => fmtDateFull(d) ?? '-'
 
   return (
     <div
@@ -752,6 +752,44 @@ export default function ProjectList({
                 )}
               </div>
             </div>  {/* flex items-center gap-4 */}
+
+            {/* ── 데드라인 바 ── */}
+            {(() => {
+              const today = new Date()
+              today.setHours(0,0,0,0)
+              const deadlines = [
+                { label: '최종샘플', date: project.deadline_final_sample, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' },
+                { label: '금형시작', date: project.deadline_mold,         color: 'text-purple-600', bg: 'bg-purple-50 border-purple-100' },
+                { label: '발주',     date: project.deadline_order,        color: 'text-orange-600', bg: 'bg-orange-50 border-orange-100' },
+                { label: '양산시작', date: project.deadline_mass_production, color: 'text-red-600', bg: 'bg-red-50 border-red-100' },
+              ].filter(d => d.date)
+              if (!deadlines.length) return null
+              return (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-2">
+                  {deadlines.map(({ label, date, color, bg }) => {
+                    const d = new Date(date!)
+                    d.setHours(0,0,0,0)
+                    const diffDays = Math.ceil((d.getTime() - today.getTime()) / 86400000)
+                    const isOver = diffDays < 0
+                    const isNear = diffDays >= 0 && diffDays <= 7
+                    return (
+                      <div key={label} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${
+                        isOver ? 'bg-red-50 border-red-200' : isNear ? 'bg-amber-50 border-amber-200' : bg
+                      }`}>
+                        <span className={`font-medium ${isOver ? 'text-red-500' : isNear ? 'text-amber-700' : color}`}>
+                          {label}
+                        </span>
+                        <span className={`${isOver ? 'text-red-400' : isNear ? 'text-amber-600' : 'text-gray-500'}`}>
+                          {fmtDateShort(date)}
+                        </span>
+                        {isOver && <span className="text-red-400 font-semibold">D+{Math.abs(diffDays)}</span>}
+                        {isNear && !isOver && <span className="text-amber-600 font-semibold">D-{diffDays}</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </Link>
 
           {/* 삭제 버튼 - 호버 시 표시 */}

@@ -36,6 +36,7 @@ export default async function DashboardPage() {
     .from('projects')
     .select(`
       id, title, status, item_name, target_delivery_date, target_launch_date, created_at, planner_id, sample_step, thumbnail_url,
+      sku_options, deadline_mass_production, deadline_order, deadline_mold, deadline_final_sample,
       planner:profiles!projects_planner_id_fkey(name),
       pm:profiles!projects_pm_id_fkey(name),
       designer:profiles!projects_designer_id_fkey(name)

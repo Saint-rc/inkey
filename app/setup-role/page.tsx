@@ -7,9 +7,15 @@ import { createClient } from '@/lib/supabase/client'
 const ROLES = [
   {
     value: 'PLANNER',
-    label: 'PM',
+    label: '신규기획',
     desc: '새 프로젝트를 발의하고 요건을 정의합니다',
     icon: '💡',
+  },
+  {
+    value: 'PM_LEADER',
+    label: '상품기획 리더',
+    desc: '상품기획 담당자를 배정하고 전체 일정을 총괄합니다',
+    icon: '📊',
   },
   {
     value: 'PM',

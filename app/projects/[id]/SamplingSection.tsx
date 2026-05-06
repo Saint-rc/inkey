@@ -3,12 +3,14 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { notifyREMC, REMC_MESSAGES } from '@/lib/remc-notify'
+import { fmtDateShort } from '@/lib/formatDate'
 
 type SamplePhase = '1차샘플' | '2차샘플' | '양산·운송'
 
 const getPhase = (step: string | null): SamplePhase => {
   if (!step) return '1차샘플'
-  if (['SAMPLE_REQUESTED', 'SAMPLE_ARRIVED', 'SAMPLE_1ST_REJECTED'].includes(step)) return '1차샘플'
+  if (['SAMPLE_WAIT', 'SAMPLE_REQUESTED', 'SAMPLE_ARRIVED', 'SAMPLE_1ST_REJECTED'].includes(step)) return '1차샘플'
   if (['SAMPLE_2ND_PRODUCTION', 'SAMPLE_2ND_REVIEW', 'SAMPLE_2ND_REJECTED'].includes(step)) return '2차샘플'
   return '양산·운송'  // MASS_PRODUCTION_WAIT, MASS_PRODUCTION_START, SHIPPING_STARTED, WAREHOUSED
 }
@@ -24,8 +26,9 @@ type StepBtn = {
 
 const STEP_BUTTONS: Record<SamplePhase, StepBtn[]> = {
   '1차샘플': [
-    { key: 'SAMPLE_REQUESTED',      label: '샘플제작중', color: 'bg-blue-100 text-blue-700 border-blue-300' },
-    { key: 'SAMPLE_ARRIVED',        label: '검수중',     color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
+    { key: 'SAMPLE_WAIT',           label: '샘플제작대기중', color: 'bg-gray-100 text-gray-600 border-gray-300' },
+    { key: 'SAMPLE_REQUESTED',      label: '샘플제작중',     color: 'bg-blue-100 text-blue-700 border-blue-300' },
+    { key: 'SAMPLE_ARRIVED',        label: '검수중',         color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
     { key: 'MASS_PRODUCTION_WAIT',  label: '검수완료',   color: 'bg-green-100 text-green-700 border-green-300', transitionTo: 'MASS_PRODUCTION_WAIT' },
     { key: 'SAMPLE_2ND_PRODUCTION', label: '검수반려',   color: 'bg-red-100 text-red-700 border-red-300', transitionTo: 'SAMPLE_2ND_PRODUCTION', isReject: true },
   ],
@@ -58,6 +61,7 @@ const PHASE_DATE_FIELDS: Record<SamplePhase, { stageName: string; label: string 
 }
 
 const STEP_LABEL: Record<string, string> = {
+  SAMPLE_WAIT:           '샘플제작대기중',
   SAMPLE_REQUESTED:      '샘플제작중',
   SAMPLE_ARRIVED:        '검수중',
   SAMPLE_2ND_PRODUCTION: '2차 샘플제작중',
@@ -82,10 +86,7 @@ const fmt = (iso: string) => {
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
-function formatDate(d: string | null | undefined) {
-  if (!d) return null
-  return new Date(d).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })
-}
+const formatDate = fmtDateShort
 
 // ── 반려 사유 모달 ─────────────────────────────────────────
 function RejectModal({
@@ -258,7 +259,24 @@ export default function SamplingSection({
 
   const isPM = true
   const phase = getPhase(project.sample_step)
-  const phaseOrder = (['1차샘플', '2차샘플', '양산·운송'] as SamplePhase[]).indexOf(phase)
+  const sampleRound: number = project.sample_round ?? 1
+
+  // 차수별 탭 동적 생성: 1차샘플, 2차샘플, ..., N차샘플, 양산·운송
+  const phases = [
+    '1차샘플',
+    ...Array.from({ length: Math.max(0, sampleRound - 1) }, (_, i) => `${i + 2}차샘플`),
+    '양산·운송',
+  ] as string[]
+
+  const phaseOrder = phase === '1차샘플' ? 0
+    : phase === '양산·운송' ? phases.length - 1
+    : sampleRound - 1
+
+  const currentPhaseName = phase === '1차샘플' ? '1차 샘플 진행'
+    : phase === '양산·운송' ? '양산 및 운송'
+    : `${sampleRound}차 샘플 진행`
+
+  const isWaitingSample = project.sample_step === 'SAMPLE_WAIT'
   const isWaitingProduction = project.sample_step === 'MASS_PRODUCTION_WAIT'
   const [massProductionDate, setMassProductionDate] = useState('')
 
@@ -288,19 +306,21 @@ export default function SamplingSection({
   // 히스토리 저장
   const saveHistory = async (fromStep: string | null, toStep: string, note?: string) => {
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('sample_review_history').insert({
+    const { error } = await supabase.from('sample_review_history').insert({
       project_id: project.id,
       from_step: fromStep,
       to_step: toStep,
       note: note || null,
       created_by: user?.id ?? null,
     })
+    if (error) console.error('[saveHistory 오류]', error)
   }
 
   const applyStep = async (btn: StepBtn, rejectNote?: string) => {
     setLoading(true)
     const prevStep = project.sample_step
     const isReject = btn.isReject
+    const itemName = project.item_name || project.title
 
     if (btn.closeProject) {
       await supabase.from('projects').update({
@@ -308,10 +328,18 @@ export default function SamplingSection({
         sample_step: btn.key,
       }).eq('id', project.id)
       await saveHistory(prevStep, btn.key)
+      // 입고완료 → 디자인리더 + PM 알림
+      if (project.design_leader?.email)
+        notifyREMC({ assigneeEmail: project.design_leader.email, title: '입고 완료', body: REMC_MESSAGES.WAREHOUSED(itemName), projectId: project.id })
+      if (project.pm?.email)
+        notifyREMC({ assigneeEmail: project.pm.email, title: '입고 완료', body: REMC_MESSAGES.WAREHOUSED(itemName), projectId: project.id })
     } else {
       const nextStep = btn.transitionTo ?? btn.key
       await supabase.from('projects').update({ sample_step: nextStep }).eq('id', project.id)
       await saveHistory(prevStep, isReject ? 'REJECTED' : nextStep, isReject ? rejectNote : undefined)
+      // 운송 시작 → PM 알림
+      if (nextStep === 'SHIPPING_STARTED' && project.pm?.email)
+        notifyREMC({ assigneeEmail: project.pm.email, title: '운송 시작', body: REMC_MESSAGES.SHIPPING_STARTED(itemName), projectId: project.id })
     }
 
     router.refresh()
@@ -358,8 +386,20 @@ export default function SamplingSection({
   const handlePrev = async () => {
     if (!isPM || loading) return
     setLoading(true)
-    const prevStep = phase === '2차샘플' ? 'SAMPLE_ARRIVED' : 'SAMPLE_2ND_REVIEW'
-    await supabase.from('projects').update({ sample_step: prevStep }).eq('id', project.id)
+    let prevStep: string
+    let newRound = sampleRound
+    if (phase === '양산·운송') {
+      prevStep = 'SAMPLE_2ND_REVIEW'
+    } else if (phase === '2차샘플' && sampleRound > 2) {
+      // N차 → N-1차로 되돌리기
+      prevStep = 'SAMPLE_2ND_PRODUCTION'
+      newRound = sampleRound - 1
+    } else {
+      // 2차 → 1차로 되돌리기
+      prevStep = 'SAMPLE_ARRIVED'
+      newRound = 1
+    }
+    await supabase.from('projects').update({ sample_step: prevStep, sample_round: newRound }).eq('id', project.id)
     await saveHistory(project.sample_step, prevStep)
     router.refresh()
     setLoading(false)
@@ -383,6 +423,10 @@ export default function SamplingSection({
     }
     await supabase.from('projects').update({ sample_step: 'MASS_PRODUCTION_START' }).eq('id', project.id)
     await saveHistory('MASS_PRODUCTION_WAIT', 'MASS_PRODUCTION_START')
+    // 양산 시작 → 디자인리더 알림
+    const itemName = project.item_name || project.title
+    if (project.design_leader?.email)
+      notifyREMC({ assigneeEmail: project.design_leader.email, title: '양산 시작', body: REMC_MESSAGES.MASS_PRODUCTION_STARTED(itemName), projectId: project.id })
     router.refresh()
     setLoading(false)
   }
@@ -392,7 +436,6 @@ export default function SamplingSection({
     setShowHistoryModal(true)
   }
 
-  const phases: SamplePhase[] = ['1차샘플', '2차샘플', '양산·운송']
   const currentFields = PHASE_DATE_FIELDS[phase]
   const buttons = STEP_BUTTONS[phase]
 
@@ -454,9 +497,7 @@ export default function SamplingSection({
             {/* 현재 단계명 + 이전 단계로 */}
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-gray-700">
-                {phase === '1차샘플' && '1차 샘플 진행'}
-                {phase === '2차샘플' && '2차 샘플 진행'}
-                {phase === '양산·운송' && '양산 및 운송'}
+                {currentPhaseName}
               </div>
               {isPM && phaseOrder > 0 && (
                 <button
@@ -471,7 +512,7 @@ export default function SamplingSection({
 
             {/* 상태 버튼 */}
             {phase !== '양산·운송' && (
-              <p className="text-xs text-gray-400 -mb-1">
+              <p className="text-xs text-gray-400 mb-2">
                 <span className="text-green-600 font-medium">검수완료</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 처리합니다
               </p>
             )}
@@ -480,8 +521,24 @@ export default function SamplingSection({
                 const isActive = activeKey === btn.key
                 // 검수완료·검수반려는 디자인팀 전담 → 흐리게 표시
                 const isDesignOnly = phase !== '양산·운송' && (btn.label === '검수완료' || (btn.isReject ?? false))
-                // 양산중 버튼은 양산대기중일 때 날짜 입력 후 별도 처리
-                const isMassProductionStart = btn.key === 'MASS_PRODUCTION_START' && phase === '양산·운송'
+                // 샘플제작중 버튼은 샘플제작대기중일 때 별도 시작 UI로 대체
+                if (btn.key === 'SAMPLE_REQUESTED' && isWaitingSample) return null
+                // 양산중: 양산대기중일 때는 비활성 표시만 (날짜 입력 UI로 전환)
+                if (btn.key === 'MASS_PRODUCTION_START' && phase === '양산·운송') {
+                  return (
+                    <div
+                      key={btn.key + btn.label}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium border-2 ${
+                        isActive
+                          ? btn.color + ' shadow-sm scale-105'
+                          : 'bg-white text-gray-300 border-dashed border-gray-300 cursor-default'
+                      }`}
+                    >
+                      {btn.label}
+                      {isActive && ' ●'}
+                    </div>
+                  )
+                }
                 if (isDesignOnly) {
                   return (
                     <div
@@ -495,10 +552,6 @@ export default function SamplingSection({
                       {isActive && ' ●'}
                     </div>
                   )
-                }
-                if (isMassProductionStart) {
-                  // 양산중 버튼은 날짜 입력 UI로 대체 (아래 별도 블록에서 렌더)
-                  return null
                 }
                 return (
                   <button
@@ -517,6 +570,24 @@ export default function SamplingSection({
                 )
               })}
             </div>
+
+            {/* 샘플제작대기중 → 샘플제작중 전환 UI */}
+            {isWaitingSample && (
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-blue-800">샘플 제작 시작</span>
+                  <span className="text-xs text-blue-500 bg-blue-100 px-2 py-0.5 rounded-full">디자인팀 작지서 완료</span>
+                </div>
+                <p className="text-xs text-gray-500">공장에 샘플 제작을 의뢰했다면 샘플제작중으로 전환하세요.</p>
+                <button
+                  onClick={() => applyStep({ key: 'SAMPLE_REQUESTED', label: '샘플제작중', color: 'bg-blue-100 text-blue-700 border-blue-300' })}
+                  disabled={loading}
+                  className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-semibold rounded-lg disabled:opacity-40 transition-colors"
+                >
+                  샘플 제작 시작
+                </button>
+              </div>
+            )}
 
             {/* 양산대기중 → 양산중 전환 UI */}
             {isWaitingProduction && (
@@ -547,7 +618,7 @@ export default function SamplingSection({
 
             {isPM && phase !== '양산·운송' && (
               <p className="text-xs text-gray-400">
-                검수완료 클릭 시 양산대기 단계로, 검수반려 클릭 시 {phase === '1차샘플' ? '2차' : '2차'}샘플 제작 단계로 자동 전환됩니다
+                검수완료 클릭 시 양산대기 단계로, 검수반려 클릭 시 {phase === '1차샘플' ? '2차' : `${sampleRound + 1}차`}샘플 제작 단계로 자동 전환됩니다
               </p>
             )}
 
@@ -639,8 +710,15 @@ export function SamplingPreviewForDesign({
   const [historyLoading, setHistoryLoading] = useState(false)
 
   const phase = getPhase(project.sample_step)
-  const phaseOrder = (['1차샘플', '2차샘플', '양산·운송'] as SamplePhase[]).indexOf(phase)
-  const phases: SamplePhase[] = ['1차샘플', '2차샘플', '양산·운송']
+  const sampleRound: number = project.sample_round ?? 1
+  const phases = [
+    '1차샘플',
+    ...Array.from({ length: Math.max(0, sampleRound - 1) }, (_, i) => `${i + 2}차샘플`),
+    '양산·운송',
+  ] as string[]
+  const phaseOrder = phase === '1차샘플' ? 0
+    : phase === '양산·운송' ? phases.length - 1
+    : sampleRound - 1
   const buttons = STEP_BUTTONS[phase]
 
   const activeKey = (() => {
@@ -667,22 +745,46 @@ export function SamplingPreviewForDesign({
 
   const saveHistory = async (fromStep: string | null, toStep: string, note?: string) => {
     const { data: { user } } = await supabase.auth.getUser()
-    await supabase.from('sample_review_history').insert({
+    const { error } = await supabase.from('sample_review_history').insert({
       project_id: project.id,
       from_step: fromStep,
       to_step: toStep,
       note: note || null,
       created_by: user?.id ?? null,
     })
+    if (error) console.error('[saveHistory 오류]', error)
   }
+
+  const [stepError, setStepError] = useState<string | null>(null)
 
   const applyStep = async (btn: StepBtn, rejectNote?: string) => {
     setLoading(true)
+    setStepError(null)
     const prevStep = project.sample_step
     const isReject = btn.isReject
     const nextStep = btn.transitionTo ?? btn.key
-    await supabase.from('projects').update({ sample_step: nextStep }).eq('id', project.id)
+    const itemName = project.item_name || project.title
+
+    // 반려 시 sample_round 증가 (1차→2차, 2차→3차, ...)
+    const updatePayload: Record<string, any> = { sample_step: nextStep }
+    if (isReject) updatePayload.sample_round = sampleRound + 1
+
+    const { error } = await supabase.from('projects').update(updatePayload).eq('id', project.id)
+    if (error) {
+      console.error('샘플 단계 업데이트 오류:', error)
+      setStepError(error.message)
+      setLoading(false)
+      return
+    }
     await saveHistory(prevStep, isReject ? 'REJECTED' : nextStep, isReject ? rejectNote : undefined)
+
+    // 검수완료 → 상품기획팀 PM에게 알림
+    if (!isReject && nextStep === 'MASS_PRODUCTION_WAIT' && project.pm?.email)
+      notifyREMC({ assigneeEmail: project.pm.email, title: '검수 완료 — 양산 확인 필요', body: REMC_MESSAGES.SAMPLE_APPROVED(itemName), projectId: project.id })
+    // 검수반려 → 상품기획팀 PM에게 알림
+    if (isReject && project.pm?.email)
+      notifyREMC({ assigneeEmail: project.pm.email, title: '검수 반려', body: REMC_MESSAGES.SAMPLE_REJECTED(itemName, rejectNote), projectId: project.id })
+
     router.refresh()
     setLoading(false)
   }
@@ -771,6 +873,11 @@ export function SamplingPreviewForDesign({
               <p className="text-xs text-gray-400 mb-2">
                 <span className="text-green-600 font-medium">검수완료</span>·<span className="text-red-500 font-medium">검수반려</span>는 디자인팀에서 직접 변경 가능합니다
               </p>
+              {stepError && (
+                <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-600">
+                  오류: {stepError}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {buttons.map((btn) => {
                   const isActive = activeKey === btn.key
