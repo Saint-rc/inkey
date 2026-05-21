@@ -31,6 +31,9 @@ export default function Navbar({
         <Link href="/tracker" className="text-sm text-gray-500 hover:text-blue-600 transition-colors">
           일정 현황
         </Link>
+        <Link href="/pm-checker" className="text-sm text-gray-500 hover:text-blue-600 transition-colors">
+          파일 검수
+        </Link>
         {isAdmin && (
           <Link href="/admin" className="text-sm text-gray-500 hover:text-blue-600 transition-colors">
             관리자
