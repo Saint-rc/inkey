@@ -202,6 +202,41 @@ export default function PmCheckerClient() {
     return text
   }, [])
 
+  const extractExcel = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = e => {
+        try {
+          const wb = XLSX.read(e.target?.result, { type: 'array', raw: false })
+          let text = ''
+          for (const sheetName of wb.SheetNames) {
+            const rows = XLSX.utils.sheet_to_json<(string | null)[]>(
+              wb.Sheets[sheetName], { header: 1, defval: null, raw: false }
+            )
+            text += `[시트: ${sheetName}]\n`
+            for (const row of rows) {
+              const cells = (row as (string | null)[]).filter(c => c != null && String(c).trim())
+              if (cells.length) text += cells.join('\t') + '\n'
+            }
+            text += '\n'
+          }
+          resolve(text)
+        } catch (err) { reject(err) }
+      }
+      reader.onerror = reject
+      reader.readAsArrayBuffer(file)
+    })
+  }, [])
+
+  const extractText = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = e => resolve(e.target?.result as string)
+      reader.onerror = reject
+      reader.readAsText(file, 'utf-8')
+    })
+  }, [])
+
   /* ── 검수 파일 추가 ── */
   const handleChecks = useCallback(async (files: FileList) => {
     for (const file of Array.from(files)) {
@@ -209,10 +244,22 @@ export default function PmCheckerClient() {
       const id = `f_${Date.now()}_${Math.random().toString(36).slice(2)}`
       setPendingFiles(prev => [...prev, { id, name: file.name, status: 'loading' }])
       try {
-        const raw  = await extractPdf(file)
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+        let raw = ''
+        if (ext === 'pdf') {
+          raw = await extractPdf(file)
+          if (!raw || raw.trim().length < 80) {
+            setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'image-pdf' } : f))
+            continue
+          }
+        } else if (['xlsx','xls','xlsm','xlsb','csv','ods'].includes(ext)) {
+          raw = await extractExcel(file)
+        } else {
+          raw = await extractText(file)
+        }
         const text = cleanText(raw)
-        if (!text || text.trim().length < 80) {
-          setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'image-pdf' } : f))
+        if (!text || text.trim().length < 10) {
+          setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'error' } : f))
         } else {
           setPendingFiles(prev => prev.map(f =>
             f.id === id ? { ...f, status: 'ready', chars: text.trim().length } : f
@@ -224,7 +271,7 @@ export default function PmCheckerClient() {
       }
     }
     if (checkInputRef.current) checkInputRef.current.value = ''
-  }, [pendingFiles, extractPdf])
+  }, [pendingFiles, extractPdf, extractExcel, extractText])
 
   const removeFile = (id: string) => {
     setPendingFiles(prev => prev.filter(f => f.id !== id))
@@ -257,7 +304,8 @@ export default function PmCheckerClient() {
   const runCheck = async () => {
     if (!Object.keys(masterData).length) return alert('마스터 데이터를 먼저 등록해주세요.')
     if (!checkFiles.length) return alert('검수할 파일을 추가해주세요.')
-    if (!pdfjsReady) return alert('PDF.js 로딩 중입니다. 잠시 후 다시 시도해주세요.')
+    const hasPdf = checkFiles.some(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (hasPdf && !pdfjsReady) return alert('PDF.js 로딩 중입니다. 잠시 후 다시 시도해주세요.')
 
     setIsRunning(true)
     const issues: Issue[] = []
@@ -275,12 +323,24 @@ export default function PmCheckerClient() {
       setShowResults(true)
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
       saveHistory(issues)
+      // 검수 완료 후 입력 초기화
+      resetInputs()
     } catch (err) {
       alert('검수 오류: ' + (err as Error).message)
     } finally {
       setIsRunning(false)
       setRunStatus('')
     }
+  }
+
+  /* ── 초기화 ── */
+  const resetInputs = () => {
+    setMasterData({})
+    setMasterFileName('')
+    setPendingFiles([])
+    setCheckFiles([])
+    if (masterInputRef.current) masterInputRef.current.value = ''
+    if (checkInputRef.current) checkInputRef.current.value = ''
   }
 
   /* ── 필터 ── */
@@ -405,7 +465,7 @@ export default function PmCheckerClient() {
               {checkFiles.length > 0 ? '✓' : '2'}
             </div>
             <h2 className="pc-card-title">검수 파일 등록</h2>
-            <span className="pc-hint">텍스트형 PDF만 지원 · 여러 파일 추가 가능</span>
+            <span className="pc-hint">PDF · Excel · 텍스트 파일 · 여러 파일 추가 가능</span>
           </div>
           <div className="pc-card-body">
             <div className="pc-files-grid">
@@ -430,7 +490,7 @@ export default function PmCheckerClient() {
             <input
               ref={checkInputRef}
               type="file"
-              accept=".pdf"
+              accept=".pdf,.xlsx,.xls,.xlsm,.xlsb,.csv,.ods,.txt,.md,.tsv"
               multiple
               style={{ display: 'none' }}
               onChange={e => { if (e.target.files) handleChecks(e.target.files) }}
@@ -463,6 +523,9 @@ export default function PmCheckerClient() {
               <div className="pc-step done">✓</div>
               <h2 className="pc-card-title">검수 결과</h2>
               <span className="pc-hint">{checkFiles.length}개 파일 검수 완료</span>
+              <button className="pc-new-btn" onClick={() => { setShowResults(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>
+                + 새 검수
+              </button>
             </div>
             <div className="pc-card-body">
               {/* 요약 */}
@@ -651,4 +714,6 @@ const CSS = `
 .pc-hi-del { background:none; border:1px solid #e5e7eb; border-radius:6px; padding:4px 10px; font-size:12px; color:#9ca3af; cursor:pointer; flex-shrink:0; }
 .pc-hi-del:hover { border-color:#fca5a5; color:#dc2626; background:#fff5f5; }
 .pc-clear-btn { margin-left:auto; padding:4px 12px; border-radius:6px; border:1px solid #fca5a5; background:#fff5f5; color:#dc2626; font-size:12px; cursor:pointer; }
+.pc-new-btn { margin-left:auto; padding:5px 14px; border-radius:6px; border:1px solid #3b82f6; background:#eff6ff; color:#2563eb; font-size:12px; font-weight:600; cursor:pointer; }
+.pc-new-btn:hover { background:#dbeafe; }
 `
